@@ -53,6 +53,38 @@ afterEach(async () => {
 });
 
 describe("private editor and public presentation", () => {
+  it("allows a one-character admin password and still requires the correct password", async () => {
+    await app.close();
+    app = await buildApp({ dataDir: dir, adminPassword: "x", logger: false });
+    for (const [password, expectedStatus] of [
+      ["", 400],
+      ["y", 401],
+      ["x", 200],
+    ] as const) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/auth/login",
+        headers: { origin },
+        payload: { password },
+      });
+      expect(response.statusCode).toBe(expectedStatus);
+      if (expectedStatus === 200) {
+        const shortPasswordCookie = response.headers["set-cookie"]!
+          .toString().split(";")[0];
+        expect(
+          (await app.inject({
+            url: "/api/admin/scenes",
+            headers: { cookie: shortPasswordCookie },
+          })).statusCode,
+        ).toBe(200);
+      }
+    }
+  });
+  it("still rejects an empty configured admin password", async () => {
+    await expect(
+      buildApp({ dataDir: dir, adminPassword: "", logger: false }),
+    ).rejects.toThrow("ADMIN_PASSWORD must not be empty");
+  });
   it("rejects unauthenticated admin access and hostile origins", async () => {
     expect((await app.inject("/api/admin/scenes")).statusCode).toBe(401);
     expect((await app.inject("/api/admin/assets")).statusCode).toBe(401);

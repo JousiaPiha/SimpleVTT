@@ -27,8 +27,8 @@ export interface AppOptions {
   onlineAudio?: OnlineAudioOptions;
 }
 export async function buildApp(options: AppOptions) {
-  if (options.adminPassword.length < 12)
-    throw new Error("ADMIN_PASSWORD must contain at least 12 characters");
+  if (!options.adminPassword)
+    throw new Error("ADMIN_PASSWORD must not be empty");
   const app = Fastify({
     logger: options.logger ?? true,
     bodyLimit: 1024 * 1024,

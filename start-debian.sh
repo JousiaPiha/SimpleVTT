@@ -115,10 +115,11 @@ fi
 
 if [[ -z "${ADMIN_PASSWORD:-}" ]]; then
   [[ -t 0 ]] || fail "Run ./start-debian.sh in a terminal once to set your password. Configuration: $CONFIG_FILE"
+  printf 'A longer password is recommended, but not required.\n'
   while true; do
-    read -r -s -p 'Choose an admin password (at least 12 characters): ' ADMIN_PASSWORD
+    read -r -s -p 'Choose an admin password: ' ADMIN_PASSWORD
     printf '\n'
-    [[ ${#ADMIN_PASSWORD} -ge 12 ]] || { printf 'Please use at least 12 characters.\n'; continue; }
+    [[ -n "$ADMIN_PASSWORD" ]] || { printf 'Please enter a non-empty password.\n'; continue; }
     read -r -s -p 'Repeat the password: ' confirmation
     printf '\n'
     [[ "$ADMIN_PASSWORD" == "$confirmation" ]] && break
@@ -129,7 +130,7 @@ if [[ -z "${ADMIN_PASSWORD:-}" ]]; then
   unset confirmation
   printf 'Password saved in %s (readable only by your user).\n' "$CONFIG_FILE"
 fi
-[[ ${#ADMIN_PASSWORD} -ge 12 ]] || fail "ADMIN_PASSWORD must contain at least 12 characters. Check $CONFIG_FILE"
+[[ -n "$ADMIN_PASSWORD" ]] || fail "ADMIN_PASSWORD must not be empty. Check $CONFIG_FILE"
 export ADMIN_PASSWORD
 
 if [[ ! -d node_modules ]]; then

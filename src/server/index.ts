@@ -2,9 +2,9 @@ import { resolve } from "node:path";
 import { buildApp } from "./app.js";
 
 const password = process.env.ADMIN_PASSWORD;
-if (!password || password.length < 12) {
+if (!password) {
   console.error(
-    "Set ADMIN_PASSWORD to a password of at least 12 characters. See README.md.",
+    "Set ADMIN_PASSWORD to a non-empty password. A longer password is recommended. See README.md.",
   );
   process.exit(1);
 }

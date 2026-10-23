@@ -19,7 +19,7 @@ npm install
 npm run build
 ```
 
-Set an administrator password of at least 12 characters, then start the server:
+Set a non-empty administrator password, then start the server. A longer password is recommended, but there is no minimum length requirement beyond being non-empty:
 
 ```sh
 # macOS / Linux — enter your own password; do not use a shared example password
@@ -147,7 +147,7 @@ Environment variables (resolved from the project working directory):
 
 | Variable         | Default            | Purpose                                         |
 | ---------------- | ------------------ | ----------------------------------------------- |
-| `ADMIN_PASSWORD` | required           | Administrator password, minimum 12 characters   |
+| `ADMIN_PASSWORD` | required           | Non-empty administrator password; longer is recommended |
 | `HOST`           | `127.0.0.1`        | Interface to bind; `0.0.0.0` enables LAN access |
 | `PORT`           | `3000`             | HTTP/WebSocket port                             |
 | `DATA_DIR`       | `./data`           | SQLite data directory                           |
