@@ -36,6 +36,25 @@ npm start
 
 Open [the administrator](http://localhost:3000/admin). The server listens only on `127.0.0.1` by default. Sessions last 12 hours and require signing in again after a server restart. Changing `ADMIN_PASSWORD` takes effect on restart. No password is saved in the database; startup derives a scrypt hash, and session tokens are stored as hashes in memory.
 
+## Debian / KDE Plasma launcher
+
+Install Node.js **22.13 or newer** and npm first. The launcher also uses `curl`, `flock` (from `util-linux`) and `xdg-open` (from `xdg-utils`). If needed, install these Debian packages with `sudo apt install curl util-linux xdg-utils`. Native dependency builds may also need `build-essential` and `python3`.
+
+From the downloaded/cloned project folder, run once in a terminal as your normal user:
+
+```sh
+chmod +x start-debian.sh
+./start-debian.sh
+```
+
+The launcher asks you to choose and confirm an admin password on first use. It saves it in `~/.config/simple-vtt/launcher.conf`, readable only by your user. If you already set `ADMIN_PASSWORD` in the environment, it uses that value without saving it; add it to the configuration yourself if you want menu launches to use it too. The configuration is a trusted Bash file; quote values containing spaces or shell characters.
+
+On first launch, missing dependencies are installed with `npm ci` (internet required), and a missing production build is generated. Subsequent launches work offline. After pulling code updates, stop the server and run `npm ci && npm run build` before launching again.
+
+The script adds **SimpleVTT** to KDE's application menu under Games, with a blue dice icon, if `~/.local/share/applications/simple-vtt.desktop` does not already exist. It opens a terminal for the server and launches your default browser at the admin dashboard once the server is ready. Keep the terminal open; **Ctrl+C** stops the server. Closing only the browser leaves the server running. Clicking the menu item again opens the dashboard for the existing launcher instead of starting another server for the same data folder.
+
+Edit `launcher.conf` to enable LAN access (`export HOST=0.0.0.0`), change the port or set a data directory. Existing project data in `./data` is used by default. `XDG_CONFIG_HOME` and `XDG_DATA_HOME` are respected. No sudo is needed to run the launcher or create the menu entry. Node/npm must be available in the terminal where you first run it; the menu entry preserves that PATH. If you move the project or change your Node installation, delete the desktop file and run the script again to recreate it.
+
 ## Connect a player over LAN
 
 To listen on your LAN interface, set `HOST=0.0.0.0` (or a specific local interface address) before `npm start`. Allow inbound TCP port 3000 on your **private network** firewall. On the player device, open `http://<GM-PC-LAN-IP>:3000/player`; no account is needed. Do not configure router port forwarding or expose this server to the internet.
