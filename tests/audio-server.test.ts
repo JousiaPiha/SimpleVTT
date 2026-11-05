@@ -158,6 +158,8 @@ describe("private audio backend", () => {
       .run("audio/wav", "music", image.id);
     sqlite.close();
     await start();
+    expect((await app.inject("/api/presentation")).json().scene).toBeNull();
+    await admin("PUT", "/api/admin/presentation", { sceneId: scene.id });
     expect((await app.inject("/api/presentation")).json().scene).toEqual({
       id: scene.id,
       gridEnabled: false,
@@ -421,7 +423,10 @@ describe("private audio backend", () => {
     );
     sqlite.close();
     await start();
-    expect((await app.inject("/api/presentation")).json().scene).toMatchObject({
+    expect((await app.inject("/api/presentation")).json().scene).toBeNull();
+    expect(
+      (await admin("GET", "/api/admin/scenes/old-scene")).json(),
+    ).toMatchObject({
       id: "old-scene",
       backgroundAssetId: "old-image",
     });

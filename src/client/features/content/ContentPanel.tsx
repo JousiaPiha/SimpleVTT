@@ -23,8 +23,11 @@ import {
 } from "../../../shared/content.js";
 import { LootFields } from "./LootFields.js";
 import { CopyContent } from "./CopyContent.js";
+import { useSessionDraft } from "../sessions/drafts.js";
+import { useSessionAccess } from "../sessions/access.js";
 
 export function ContentPanel() {
+  const blocked = useSessionAccess((s) => s.blocked);
   const state = useEditor();
   const { scene, selectedContentId, pending } = state;
   const item = scene?.content.find((i) => i.id === selectedContentId);
@@ -44,6 +47,7 @@ export function ContentPanel() {
         )
       : 0;
   const dirty = !!item && !!drafts[item.id];
+  useSessionDraft("text and loot", Object.keys(drafts).length > 0 || saving);
   useEffect(() => {
     if (!Object.keys(drafts).length) return;
     const warn = (event: BeforeUnloadEvent) => {
@@ -368,7 +372,7 @@ export function ContentPanel() {
       ) : null}
       <CopyContent />
       <Modal
-        opened={!!deleting}
+        opened={!!deleting && !blocked}
         title={`Delete ${deleting?.type === "loot" ? "loot list" : "text"}?`}
         onClose={() => {
           if (!deletingBusy) setDeleting(null);

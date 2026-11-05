@@ -11,8 +11,11 @@ import {
 import { isAudioAsset } from "../../../shared/audio.js";
 import { useEditor } from "../../stores/editor.js";
 import { audioEngine, useAudioStore } from "./store.js";
+import { useSessionDraft } from "../sessions/drafts.js";
+import { useSessionAccess } from "../sessions/access.js";
 
 export function PlaylistEditor() {
+  const blocked = useSessionAccess((s) => s.blocked);
   const { assets } = useEditor();
   const {
     playlists,
@@ -29,6 +32,11 @@ export function PlaylistEditor() {
   const [track, setTrack] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const original = playlists.find((playlist) => playlist.id === id);
+  const dirty =
+    name !== (original?.name ?? "") ||
+    JSON.stringify(trackIds) !== JSON.stringify(original?.trackIds ?? []);
+  useSessionDraft("playlist", dirty);
   useEffect(() => {
     if (!deletedAssetIds.length) return;
     setTrackIds((current) =>
@@ -123,6 +131,17 @@ export function PlaylistEditor() {
           >
             New
           </Button>
+          {dirty && (
+            <Button
+              size="xs"
+              variant="subtle"
+              color="gray"
+              disabled={busy}
+              onClick={() => choose(id)}
+            >
+              Discard playlist draft
+            </Button>
+          )}
           {id ? (
             <Button
               size="xs"
@@ -225,7 +244,7 @@ export function PlaylistEditor() {
         </div>
       </div>
       <Modal
-        opened={deleting}
+        opened={deleting && !blocked}
         onClose={() => setDeleting(false)}
         title="Delete this playlist?"
         centered

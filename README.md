@@ -34,7 +34,7 @@ $env:ADMIN_PASSWORD = 'replace-with-your-own-password'
 npm start
 ```
 
-Open [the administrator](http://localhost:3000/admin). The server listens only on `127.0.0.1` by default. Sessions last 12 hours and require signing in again after a server restart. Changing `ADMIN_PASSWORD` takes effect on restart. No password is saved in the database; startup derives a scrypt hash, and session tokens are stored as hashes in memory.
+Open [the administrator](http://localhost:3000/admin). The server listens only on `127.0.0.1` by default. Administrator sign-ins last 12 hours and require signing in again after a server restart. Changing `ADMIN_PASSWORD` takes effect on restart. No password is saved in the database; startup derives a scrypt hash, and authentication tokens are stored as hashes in memory.
 
 ## Debian / KDE Plasma launcher
 
@@ -119,6 +119,31 @@ Audio continues across scene changes and panel navigation, exclusively in the GM
 
 Sound effects are limited to 16 MiB encoded, 120 seconds, and 64 MiB decoded per file; use music/ambience for longer clips. The effect cache, concurrent loading, and overlapping playback are bounded. Unsupported or missing audio produces a visible error. Crossfades are not implemented yet.
 
+## Portable sessions
+
+The **Sessions** button at the top of the administrator shows the current session name; hover over it to see its server folder. Every server start opens **Default Session**, retaining your drafts from the previous run. The player display starts blank until you click **Present scene**.
+
+- **Save Session As…** copies the current session into an **existing empty folder**, then opens that copy. Hidden files count as contents. The original session remains unchanged by subsequent edits. Use **New Folder** in the picker to create a destination.
+- **Open Session…** validates a saved session folder and opens it in place. Changes save to that folder automatically. Invalid sessions show an error and leave your current session open.
+- **Close Session** finishes pending saves, releases the named folder, and returns to Default Session.
+- **Clear Default Session…** removes its saved scenes, library entries, owned indexed media, playlists, soundboard settings, and audio preferences after confirmation. Named sessions and server configuration remain. Files in an external `MEDIA_DIR` are kept.
+
+Session changes stop audio and blank the player display. Scene selection, drawing tools, and other temporary editor state reset. Text, playlist, grid, and sound-settings forms still require their existing **Save/Apply** action; finish or discard those drafts before switching sessions. Finish or cancel an online audio import first.
+
+A portable folder contains `session.json`, `simple-vtt.sqlite`, and `media/`. Save As includes every indexed asset, including unused library items and custom sound icons; it preserves media bytes and uses portable filenames. Unindexed files, passwords, executable paths, and machine configuration are excluded. Named sessions always use their own `media/`; `MEDIA_DIR` applies only to Default Session. Keep the entire folder together.
+
+To move a session between computers, **Close Session** (or stop the server), copy the complete folder using a thumb drive or cloud storage, and open it on the other computer. Let cloud transfers finish before opening. Do not edit the same session on two computers or synchronize its database while open. Edit a local, fully downloaded copy; running the active SQLite database on a network share is unsupported. An ownership lock prevents ordinary concurrent opens; a lock copied from another computer needs inspection and removal only after confirming no server still uses that folder.
+
+The folder browser shows the **server computer's filesystem**, even if the dashboard is open on another device. It has a path field, Home, Up, New Folder, and available drive/mount shortcuts. Set an optional initial location on each server:
+
+```sh
+export SESSIONS_ROOT='/path/to/my/sessions'
+```
+
+On Windows PowerShell, use `$env:SESSIONS_ROOT = 'D:\Tabletop\Sessions'`. For the Debian launcher, add the export to `~/.config/simple-vtt/launcher.conf`. This setting is a navigation preference, not an access boundary or a relocation of Default Session. If unset, browsing starts at the current session. If the configured path is missing or unmounted, the picker warns and falls back to the current session, server working directory, or home folder; it never creates the missing root.
+
+If active storage disappears or becomes unwritable, saving pauses with a visible error and the editor retains local work. Restore the drive/path and choose **Retry session storage**. **Close Session** can explicitly abandon unsaved local work if a named session cannot be recovered; the dialog warns that its folder is not confirmed safe to transfer. If Default Session cannot open, the dashboard still lets you retry or open another valid session. It does not overwrite a damaged database with an empty one.
+
 ## Media and data
 
 The default data directory is `./data`, containing `simple-vtt.sqlite` and `media/`. Uploaded media bytes are preserved with generated filenames. Metadata and stable IDs live in SQLite, not in the scene's filesystem paths.
@@ -129,7 +154,7 @@ Do not put unrelated private files into the media directory. Missing files produ
 
 Players receive only the public scene projection and can request only images currently used by its background or visible objects. They receive no GM labels, library listings, hidden objects, or unrevealed asset IDs. Hiding content cannot erase anything a player has already seen or cached.
 
-For a consistent backup, stop the server and copy the data and configured media directories together. Do not commit databases, uploaded media, or passwords to source control.
+For a consistent backup of Default Session, stop the server and copy the data and configured media directories together, or use **Save Session As** to create a self-contained session. Do not commit databases, uploaded media, or passwords to source control.
 
 ## Online audio imports
 
@@ -152,8 +177,9 @@ Environment variables (resolved from the project working directory):
 | `ADMIN_PASSWORD` | required           | Non-empty administrator password; longer is recommended |
 | `HOST`           | `127.0.0.1`        | Interface to bind; `0.0.0.0` enables LAN access |
 | `PORT`           | `3000`             | HTTP/WebSocket port                             |
-| `DATA_DIR`       | `./data`           | SQLite data directory                           |
-| `MEDIA_DIR`      | `<DATA_DIR>/media` | Image/audio library and upload directory        |
+| `DATA_DIR`       | `./data`           | Default Session database and data directory     |
+| `MEDIA_DIR`      | `<DATA_DIR>/media` | Default Session image/audio library             |
+| `SESSIONS_ROOT`  | Current session folder | Preferred starting folder for Open / Save As |
 | `YT_DLP_PATH` | `yt-dlp` on PATH | Optional absolute path to yt-dlp executable |
 | `FFMPEG_DIRECTORY` | PATH | Optional folder containing ffmpeg and ffprobe |
 | `COOKIE_SECURE`  | `false`            | Secure cookie flag; direct HTTP needs false     |

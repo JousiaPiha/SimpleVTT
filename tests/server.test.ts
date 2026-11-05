@@ -69,13 +69,15 @@ describe("private editor and public presentation", () => {
       });
       expect(response.statusCode).toBe(expectedStatus);
       if (expectedStatus === 200) {
-        const shortPasswordCookie = response.headers["set-cookie"]!
-          .toString().split(";")[0];
+        const shortPasswordCookie =
+          response.headers["set-cookie"]!.toString().split(";")[0];
         expect(
-          (await app.inject({
-            url: "/api/admin/scenes",
-            headers: { cookie: shortPasswordCookie },
-          })).statusCode,
+          (
+            await app.inject({
+              url: "/api/admin/scenes",
+              headers: { cookie: shortPasswordCookie },
+            })
+          ).statusCode,
         ).toBe(200);
       }
     }
@@ -153,8 +155,18 @@ describe("private editor and public presentation", () => {
       adminPassword: "test-password-123",
       logger: false,
     });
-    expect((await app.inject("/api/presentation")).json()).toEqual(state);
+    expect((await app.inject("/api/presentation")).json().scene).toBeNull();
     expect((await admin("GET", "/api/admin/scenes")).statusCode).toBe(401);
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      headers: { origin },
+      payload: { password: "test-password-123" },
+    });
+    cookie = login.headers["set-cookie"]!.toString().split(";")[0];
+    expect(
+      (await admin("GET", `/api/admin/scenes/${s.id}`)).json().objects[0],
+    ).toMatchObject({ x: 321, y: 432, scale: 1.5, visible: true });
   });
   it("scans nested images, ignores symlinks and unsupported content, and deduplicates", async () => {
     await mkdir(join(dir, "media", "sprites"));
@@ -387,9 +399,17 @@ describe("scene grid", () => {
       adminPassword: "test-password-123",
       logger: false,
     });
-    expect((await app.inject("/api/presentation")).json().scene).toMatchObject(
-      grid,
-    );
+    expect((await app.inject("/api/presentation")).json().scene).toBeNull();
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      headers: { origin },
+      payload: { password: "test-password-123" },
+    });
+    cookie = login.headers["set-cookie"]!.toString().split(";")[0];
+    expect(
+      (await admin("GET", `/api/admin/scenes/${prepared.id}`)).json(),
+    ).toMatchObject(grid);
   });
   it("keeps a prepared scene's grid separate from the live scene", async () => {
     const live = await scene();

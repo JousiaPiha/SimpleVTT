@@ -43,6 +43,7 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
 # export HOST=0.0.0.0
 # export PORT=3000
 # export DATA_DIR=/path/to/your/data
+# export SESSIONS_ROOT=/path/to/your/sessions
 CONFIG
   )
 fi

@@ -20,6 +20,7 @@ import {
 } from "../../../shared/online-audio.js";
 import { api, json } from "../../api.js";
 import { useEditor } from "../../stores/editor.js";
+import { useSessionDraft } from "../sessions/drafts.js";
 
 export function OnlineAudioImport({ category }: { category: AudioCategory }) {
   const [opened, setOpened] = useState(false);
@@ -34,6 +35,7 @@ export function OnlineAudioImport({ category }: { category: AudioCategory }) {
   const [submitting, setSubmitting] = useState(false);
   const refreshed = useRef<string | null>(null);
   const busy = onlineAudioBusy(job);
+  useSessionDraft("audio import (finish or cancel it)", busy || submitting);
   useEffect(() => {
     if (!opened && !busy) return;
     let stopped = false;

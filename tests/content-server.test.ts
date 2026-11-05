@@ -162,6 +162,7 @@ describe("scene text and loot backend", () => {
     );
     expect(reconnected[0]).toEqual({
       type: "presentation.snapshot",
+      generation: expect.any(String),
       scene: displayed,
     });
     expect(JSON.stringify(reconnected)).not.toMatch(
@@ -295,6 +296,8 @@ describe("scene text and loot backend", () => {
     expect(
       (await admin("GET", `/api/admin/scenes/${s.id}`)).json().content,
     ).toEqual([{ ...text, visible: true, x: 820 }, loot]);
+    expect((await app.inject("/api/presentation")).json().scene).toBeNull();
+    await admin("PUT", "/api/admin/presentation", { sceneId: s.id });
     expect(
       (await app.inject("/api/presentation")).json().scene.content,
     ).toMatchObject([{ id: text.id, x: 820 }]);
@@ -338,6 +341,8 @@ describe("scene text and loot backend", () => {
       { id: "playlist", name: "Old playlist", trackIds: [] },
     ]);
     await create("scene", "text");
+    expect((await app.inject("/api/presentation")).json().scene).toBeNull();
+    await admin("PUT", "/api/admin/presentation", { sceneId: "scene" });
     expect((await app.inject("/api/presentation")).json().scene).toMatchObject({
       id: "scene",
       backgroundAssetId: "image",

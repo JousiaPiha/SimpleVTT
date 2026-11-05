@@ -14,7 +14,9 @@ export function registerLaser(
   authenticated: (request: FastifyRequest) => boolean,
   liveSceneId: () => string | undefined,
   broadcast: (event: LaserEvent) => void,
+  generation?: () => string,
 ) {
+  const initialGeneration = generation?.();
   const controllers = new Set<WebSocket>();
   let owner: WebSocket | null = null;
   let expiry: ReturnType<typeof setTimeout> | undefined;
@@ -34,6 +36,15 @@ export function registerLaser(
           return reply
             .code(403)
             .send({ error: "Same-origin connection required" });
+        const tag = new URL(req.url, "http://localhost").searchParams.get(
+          "session",
+        );
+        if (
+          generation &&
+          ((tag && tag !== generation()) ||
+            (!tag && generation() !== initialGeneration))
+        )
+          return reply.code(409).send({ error: "The active session changed." });
       },
     },
     (socket, request) => {
@@ -85,5 +96,12 @@ export function registerLaser(
     clear();
     for (const socket of controllers) socket.terminate();
   });
-  return { clear };
+  return {
+    clear,
+    reset() {
+      clear();
+      for (const socket of controllers) socket.close(1008, "Session changed");
+      controllers.clear();
+    },
+  };
 }

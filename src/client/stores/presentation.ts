@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { setSessionGeneration } from "../api.js";
 import { applyPresentation, type PublicScene } from "../../shared/contracts.js";
 
 import {
@@ -11,7 +12,8 @@ export const usePresentation = create<{
   scene: PublicScene | null;
   connected: boolean;
   pointer: LaserPointer | null;
-}>(() => ({ scene: null, connected: false, pointer: null }));
+  generation: string | null;
+}>(() => ({ scene: null, connected: false, pointer: null, generation: null }));
 export function connectPresentation() {
   let socket: WebSocket | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -43,10 +45,15 @@ export function connectPresentation() {
               LASER_TIMEOUT_MS,
             );
         } else {
+          if (message.type === "presentation.snapshot" && message.generation)
+            setSessionGeneration(message.generation);
           usePresentation.setState((state) => ({
             scene: applyPresentation(state.scene, message),
             ...(message.type === "presentation.snapshot"
-              ? { pointer: null }
+              ? {
+                  pointer: null,
+                  generation: message.generation ?? state.generation,
+                }
               : {}),
           }));
         }

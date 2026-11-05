@@ -7,8 +7,9 @@ import {
   open,
   unlink,
   rename,
+  copyFile,
 } from "node:fs/promises";
-import { createReadStream, createWriteStream } from "node:fs";
+import { constants, createReadStream, createWriteStream } from "node:fs";
 import { Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { basename, isAbsolute, join, relative, sep, win32 } from "node:path";
@@ -60,18 +61,42 @@ export async function mediaService(
   directory: string,
   store: Store,
   logger: Pick<FastifyBaseLogger, "error">,
+  options: { create?: boolean; portable?: boolean } = {},
 ) {
-  await mkdir(directory, { recursive: true });
+  if (options.create !== false) await mkdir(directory, { recursive: true });
   const root = await realpath(directory);
   // Scans must not re-index a file while deletion or upload changes its metadata.
   let pending = Promise.resolve();
+  let pendingCount = 0;
   function mutate<T>(operation: () => Promise<T>): Promise<T> {
-    const result = pending.then(operation);
+    pendingCount++;
+    const result = pending.then(operation).finally(() => {
+      pendingCount--;
+    });
     pending = result.then(
       () => undefined,
       () => undefined,
     );
     return result;
+  }
+  // Exclusive copy/unlink also works on filesystems without hard links. Keep
+  // the original until the managed copy is complete, and remove that copy if
+  // the source cannot be moved (for example, from a read-only scanned folder).
+  async function moveExclusive(source: string, destination: string) {
+    await copyFile(source, destination, constants.COPYFILE_EXCL);
+    try {
+      await unlink(source);
+    } catch (error) {
+      try {
+        await unlink(destination);
+      } catch (cleanupError) {
+        logger.error(
+          { err: cleanupError, source, destination },
+          "Could not remove an incomplete managed media copy",
+        );
+      }
+      throw error;
+    }
   }
   async function deletionPath(relativePath: string): Promise<string | null> {
     const parts = relativePath.split(/[\\/]/);
@@ -121,6 +146,13 @@ export async function mediaService(
     return full;
   }
   return {
+    async close() {
+      await pending;
+    },
+    async idle() {
+      await pending;
+    },
+    busy: () => pendingCount > 0,
     async file(relativePath: string) {
       const path = await safePath(relativePath);
       return {
@@ -190,10 +222,17 @@ export async function mediaService(
           },
         });
         try {
-          await pipeline(source, limit, createWriteStream(path, { flags: "wx" }));
+          await pipeline(
+            source,
+            limit,
+            createWriteStream(path, { flags: "wx" }),
+          );
           if (source.truncated) invalid("File exceeds 256 MiB limit", 413);
           const type = await identify(path);
-          if (!type || (!imageTypes.has(type.mime) && !audioTypes.has(type.mime)))
+          if (
+            !type ||
+            (!imageTypes.has(type.mime) && !audioTypes.has(type.mime))
+          )
             invalid(
               "Choose a PNG, JPEG, WebP, GIF, MP3, WAV, Ogg, FLAC, or M4A file",
             );
@@ -203,11 +242,12 @@ export async function mediaService(
             );
           const relativePath = `${id}.${type.ext}`;
           const destination = join(root, relativePath);
-          await rename(path, destination);
+          await moveExclusive(path, destination);
           path = destination;
           return store.addAsset({
             name:
               basename(filename.replaceAll("\\", "/")).slice(0, 120) || "Media",
+            id,
             category,
             relativePath,
             mimeType: type.mime,
@@ -222,8 +262,16 @@ export async function mediaService(
       return mutate(async () => {
         let indexed = 0,
           skipped = 0;
+        const existingPaths = new Map(
+          store.listAssets().map((asset) => {
+            const record = store.getAsset(asset.id);
+            return [record.relativePath, record] as const;
+          }),
+        );
         async function walk(directory: string) {
-          for (const entry of await readdir(directory, { withFileTypes: true })) {
+          for (const entry of await readdir(directory, {
+            withFileTypes: true,
+          })) {
             const full = join(directory, entry.name);
             if (entry.isSymbolicLink() || entry.name.startsWith(".")) {
               skipped++;
@@ -250,7 +298,8 @@ export async function mediaService(
               }
               const audio = audioTypes.has(type.mime);
               if (
-                (await stat(safe)).size > (audio ? MAX_FILE_SIZE : MAX_IMAGE_SIZE)
+                (await stat(safe)).size >
+                (audio ? MAX_FILE_SIZE : MAX_IMAGE_SIZE)
               ) {
                 skipped++;
                 continue;
@@ -272,14 +321,56 @@ export async function mediaService(
                   : /sprites?|characters?/i.test(relativePath)
                     ? "sprite"
                     : "image";
-              store.addAsset({
-                name: entry.name.slice(0, 120),
-                category,
-                relativePath,
-                mimeType: type.mime,
-              });
+              if (options.portable) {
+                const existing = existingPaths.get(relativePath);
+                const id = existing?.id ?? randomUUID();
+                const managed = `${id}.${type.ext}`;
+                const destination = join(root, managed);
+                const moved = relativePath !== managed;
+                if (moved) await moveExclusive(safe, destination);
+                try {
+                  if (existing) {
+                    if (moved) store.setAssetPath(id, managed);
+                  } else {
+                    store.addAsset({
+                      id,
+                      name: entry.name.slice(0, 120),
+                      category,
+                      relativePath: managed,
+                      mimeType: type.mime,
+                    });
+                  }
+                } catch (error) {
+                  if (moved) {
+                    try {
+                      await moveExclusive(destination, safe);
+                    } catch (restoreError) {
+                      logger.error(
+                        { err: restoreError, source: safe, destination },
+                        "Could not restore scanned media after a database failure",
+                      );
+                    }
+                  }
+                  throw error;
+                }
+              } else {
+                store.addAsset({
+                  name: entry.name.slice(0, 120),
+                  category,
+                  relativePath,
+                  mimeType: type.mime,
+                });
+              }
               indexed++;
-            } catch {
+            } catch (error) {
+              const code = (error as NodeJS.ErrnoException).code ?? "";
+              if (
+                options.portable ||
+                /^(SQLITE_|ENOSPC|EIO|EROFS|ENODEV|ESTALE|EACCES|EPERM|EDQUOT)/.test(
+                  code,
+                )
+              )
+                throw error;
               skipped++;
             }
           }

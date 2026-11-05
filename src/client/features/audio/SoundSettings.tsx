@@ -21,6 +21,8 @@ import {
 import { api } from "../../api.js";
 import { useEditor } from "../../stores/editor.js";
 import { SoundIcon, iconLabel } from "./SoundIcon.js";
+import { useSessionDraft } from "../sessions/drafts.js";
+import { useSessionAccess } from "../sessions/access.js";
 
 export function SoundSettings({
   asset,
@@ -36,6 +38,7 @@ export function SoundSettings({
   onClose: () => void;
 }) {
   const assets = useEditor((s) => s.assets);
+  const blocked = useSessionAccess((s) => s.blocked);
   const [draft, setDraft] = useState<SoundboardInput>(() => ({
     group: initial.group,
     icon: initial.icon,
@@ -43,6 +46,13 @@ export function SoundSettings({
   }));
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
+  useSessionDraft(
+    "sound settings",
+    busy ||
+      draft.group !== initial.group ||
+      draft.icon !== initial.icon ||
+      draft.customIconAssetId !== initial.customIconAssetId,
+  );
   const [error, setError] = useState<string | null>(null);
   const file = useRef<HTMLInputElement>(null);
   const image = assets.find((a) => a.id === draft.customIconAssetId);
@@ -72,7 +82,7 @@ export function SoundSettings({
   };
   return (
     <Modal
-      opened
+      opened={!blocked}
       title={`Sound settings: ${asset.name}`}
       onClose={close}
       centered

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LASER_INTERVAL_MS, type LaserPointer } from "../../../shared/laser.js";
+import { getSessionGeneration } from "../../api.js";
 
 export function useLaserPointer(sceneId: string | null) {
   const [pointer, setPointer] = useState<LaserPointer | null>(null);
@@ -35,7 +36,7 @@ export function useLaserPointer(sceneId: string | null) {
     let socket: WebSocket;
     const connect = () => {
       socket = new WebSocket(
-        `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws/admin/laser`,
+        `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws/admin/laser?session=${encodeURIComponent(getSessionGeneration() ?? "")}`,
       );
       socketRef.current = socket;
       socket.onopen = () => setConnected(true);

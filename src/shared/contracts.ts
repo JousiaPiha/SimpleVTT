@@ -101,6 +101,7 @@ export const presentationEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("presentation.snapshot"),
     scene: publicSceneSchema.nullable(),
+    generation: z.string().optional(),
   }),
   z.object({
     type: z.literal("presentation.patch"),

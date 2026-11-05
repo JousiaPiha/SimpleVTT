@@ -111,7 +111,21 @@ it("persists all drawing types, isolates preparation, syncs additions/removals",
     adminPassword: "test-password-123",
     logger: false,
   });
-  expect(await publicState()).toEqual(after);
+  expect(await publicState()).toBeNull();
+  const login = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    headers: { origin },
+    payload: { password: "test-password-123" },
+  });
+  cookie = login.headers["set-cookie"]!.toString().split(";")[0];
+  const saved = (
+    await app.inject({
+      url: `/api/admin/scenes/${after.id}`,
+      headers: headers(),
+    })
+  ).json();
+  expect(saved.drawings).toEqual(after.drawings);
 });
 it("rejects unauthorized writes and malformed geometry", async () => {
   const s = await scene();

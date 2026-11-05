@@ -11,6 +11,7 @@ if (!password) {
 const app = await buildApp({
   dataDir: resolve(process.env.DATA_DIR ?? "data"),
   mediaDir: process.env.MEDIA_DIR ? resolve(process.env.MEDIA_DIR) : undefined,
+  sessionsRoot: process.env.SESSIONS_ROOT,
   adminPassword: password,
   onlineAudio: {
     ytDlpPath: process.env.YT_DLP_PATH,

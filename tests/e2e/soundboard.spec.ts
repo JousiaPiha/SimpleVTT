@@ -36,6 +36,9 @@ test("soundboard groups, built-in and custom icons persist and play without edit
   await expect(
     page.getByRole("button", { name: "Sign out", exact: true }),
   ).toBeVisible();
+  const { generation } = await (
+    await page.request.get("/api/admin/session")
+  ).json();
   for (const name of [
     "Blade clash.wav",
     "Owl call.wav",
@@ -44,7 +47,10 @@ test("soundboard groups, built-in and custom icons persist and play without edit
     const response = await page.request.post(
       `/api/admin/assets?category=${name === "Background bed.wav" ? "music" : "effect"}`,
       {
-        headers: { origin: "http://127.0.0.1:3100" },
+        headers: {
+          origin: "http://127.0.0.1:3100",
+          "X-SimpleVTT-Session": generation,
+        },
         multipart: {
           file: {
             name,

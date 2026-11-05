@@ -13,6 +13,8 @@ import {
 import { Grid2X2 } from "lucide-react";
 import { scenePatchSchema, type Scene } from "../../shared/contracts.js";
 import { useEditor } from "../stores/editor.js";
+import { useSessionDraft } from "../features/sessions/drafts.js";
+import { useSessionAccess } from "../features/sessions/access.js";
 
 export type GridPreview = Pick<
   Scene,
@@ -27,10 +29,18 @@ export function GridControls({
   onPreview: (preview: GridPreview | null) => void;
 }) {
   const [opened, setOpened] = useState(false);
+  const blocked = useSessionAccess((s) => s.blocked);
   const [enabled, setEnabled] = useState(scene.gridEnabled);
   const [size, setSize] = useState<string | number>(scene.gridSize);
   const [color, setColor] = useState(scene.gridColor);
   const pending = useEditor((s) => s.pending);
+  useSessionDraft(
+    "grid settings",
+    opened &&
+      (enabled !== scene.gridEnabled ||
+        size !== scene.gridSize ||
+        color !== scene.gridColor),
+  );
   const input = scenePatchSchema.safeParse({
     gridEnabled: enabled,
     gridSize: size,
@@ -61,7 +71,7 @@ export function GridControls({
   };
   return (
     <Popover
-      opened={opened}
+      opened={opened && !blocked}
       onChange={(value) => {
         if (value) reset();
         setOpened(value);

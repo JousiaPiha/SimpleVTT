@@ -56,6 +56,11 @@ interface EditorState {
 }
 let queue = Promise.resolve();
 let selectionRequest = 0;
+let epoch = 0;
+let resetEditor = () => {};
+export function resetEditorForSession() {
+  resetEditor();
+}
 export const useEditor = create<EditorState>((set, get) => {
   const writes = new Map<
     string,
@@ -69,11 +74,34 @@ export const useEditor = create<EditorState>((set, get) => {
   >();
   const failedScenes = new Set<string>();
   let writing = false;
+  resetEditor = () => {
+    epoch++;
+    selectionRequest++;
+    for (const write of writes.values())
+      write.done.forEach((done) => done(false));
+    writes.clear();
+    failedScenes.clear();
+    writing = false;
+    queue = Promise.resolve();
+    set({
+      scenes: [],
+      assets: [],
+      scene: null,
+      activeId: null,
+      selectedId: null,
+      selectedContentId: null,
+      error: null,
+      pending: 0,
+      loading: false,
+      saveFailed: false,
+    });
+  };
   async function flushObjects() {
+    const currentEpoch = epoch;
     writing = true;
     try {
-      while (writes.size || failedScenes.size) {
-        while (writes.size) {
+      while (currentEpoch === epoch && (writes.size || failedScenes.size)) {
+        while (currentEpoch === epoch && writes.size) {
           const [key, write] = writes.entries().next().value!;
           writes.delete(key);
           try {
@@ -82,25 +110,33 @@ export const useEditor = create<EditorState>((set, get) => {
               await api(path, json("PATCH", write.patch), objectSchema);
             else
               await api(path, json("PATCH", write.patch), sceneContentSchema);
+            if (currentEpoch !== epoch) {
+              write.done.forEach((resolve) => resolve(false));
+              return;
+            }
             write.done.forEach((resolve) => resolve(true));
           } catch (error) {
             write.done.forEach((resolve) => resolve(false));
+            if (currentEpoch !== epoch) return;
             failedScenes.add(write.sceneId);
             set({
               saveFailed: true,
               error: `Changes could not be saved. ${error instanceof Error ? error.message : "Check connection."}`,
             });
           } finally {
-            set((s) => ({ pending: s.pending - 1 }));
+            if (currentEpoch === epoch)
+              set((s) => ({ pending: s.pending - 1 }));
           }
         }
         for (const sceneId of failedScenes) {
+          if (currentEpoch !== epoch) return;
           try {
             const saved = await api(
               `/api/admin/scenes/${sceneId}`,
               {},
               sceneSchema,
             );
+            if (currentEpoch !== epoch) return;
             // A new gesture may have arrived during recovery. Drain it before reconciling.
             if ([...writes.values()].some((w) => w.sceneId === sceneId))
               continue;
@@ -109,28 +145,76 @@ export const useEditor = create<EditorState>((set, get) => {
           } catch {
             /* Keep the independent unsaved indicator until a successful reload. */
           }
+          if (currentEpoch !== epoch) return;
           failedScenes.delete(sceneId);
         }
       }
     } finally {
-      writing = false;
+      if (currentEpoch === epoch) writing = false;
     }
   }
-  async function tracked<T>(work: () => Promise<T>): Promise<T | undefined> {
+  interface SessionOperation {
+    request: typeof api;
+    commit: (
+      update:
+        Partial<EditorState> | ((state: EditorState) => Partial<EditorState>),
+    ) => void;
+    check: () => void;
+  }
+  async function tracked<T>(
+    work: (operation: SessionOperation) => Promise<T>,
+  ): Promise<T | undefined> {
+    const currentEpoch = epoch;
+    const check = () => {
+      if (currentEpoch !== epoch)
+        throw new Error(
+          "The active session changed. This operation was cancelled.",
+        );
+    };
+    // Preparation can outlive a session (image decode, a queued write, or a
+    // previous upload). Check before sending and again before applying results.
+    async function request<R>(
+      path: string,
+      options: RequestInit = {},
+      schema?: z.ZodType<R>,
+    ): Promise<R> {
+      check();
+      const result = await api(path, options, schema);
+      check();
+      return result;
+    }
+    const commit: SessionOperation["commit"] = (update) => {
+      check();
+      set(update);
+    };
     set((s) => ({ pending: s.pending + 1 }));
     try {
-      return await work();
+      check();
+      const result = await work({ request, commit, check });
+      check();
+      return result;
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : "Request failed" });
+      if (currentEpoch === epoch)
+        set({
+          error: error instanceof Error ? error.message : "Request failed",
+        });
     } finally {
-      set((s) => ({ pending: s.pending - 1 }));
+      if (currentEpoch === epoch) set((s) => ({ pending: s.pending - 1 }));
     }
   }
-  const loadAssets = async () =>
-    set({ assets: await api("/api/admin/assets", {}, z.array(assetSchema)) });
-  const loadScenes = async () =>
-    set({
-      scenes: await api(
+  const loadAssets = async ({
+    request,
+    commit,
+  }: Pick<SessionOperation, "request" | "commit">) =>
+    commit({
+      assets: await request("/api/admin/assets", {}, z.array(assetSchema)),
+    });
+  const loadScenes = async ({
+    request,
+    commit,
+  }: Pick<SessionOperation, "request" | "commit">) =>
+    commit({
+      scenes: await request(
         "/api/admin/scenes",
         {},
         z.array(
@@ -141,14 +225,14 @@ export const useEditor = create<EditorState>((set, get) => {
   return {
     addDrawing: async (sceneId, input) => {
       return (
-        (await tracked(async () => {
-          const drawing = await api(
+        (await tracked(async ({ request, commit }) => {
+          const drawing = await request(
             `/api/admin/scenes/${sceneId}/drawings`,
             json("POST", input),
             drawingSchema,
           );
           if (get().scene?.id === sceneId)
-            set((s) => ({
+            commit((s) => ({
               scene: s.scene && {
                 ...s.scene,
                 drawings: [...s.scene.drawings, drawing],
@@ -160,13 +244,13 @@ export const useEditor = create<EditorState>((set, get) => {
     },
     eraseDrawing: async (sceneId, id) => {
       return (
-        (await tracked(async () => {
-          await api(
+        (await tracked(async ({ request, commit }) => {
+          await request(
             `/api/admin/scenes/${sceneId}/drawings/${id}`,
             json("DELETE"),
           );
           if (get().scene?.id === sceneId)
-            set((s) => ({
+            commit((s) => ({
               scene: s.scene && {
                 ...s.scene,
                 drawings: s.scene.drawings.filter((d) => d.id !== id),
@@ -191,72 +275,74 @@ export const useEditor = create<EditorState>((set, get) => {
       await tracked(loadAssets);
     },
     initialize: async () => {
-      await tracked(async () => {
+      await tracked(async ({ request, commit, check }) => {
         const [, , live] = await Promise.all([
-          loadScenes(),
-          loadAssets(),
-          api(
+          loadScenes({ request, commit }),
+          loadAssets({ request, commit }),
+          request(
             "/api/admin/presentation",
             {},
             z.object({ sceneId: z.string().nullable() }),
           ),
         ]);
-        set({ activeId: live.sceneId });
+        commit({ activeId: live.sceneId });
+        check();
         if (live.sceneId) await get().selectScene(live.sceneId);
       });
     },
     selectScene: async (id) => {
-      const request = ++selectionRequest;
+      const selection = ++selectionRequest;
       set({ loading: true, selectedId: null, selectedContentId: null });
-      await tracked(async () => {
+      await tracked(async ({ request, commit }) => {
         await queue;
-        const scene = await api(`/api/admin/scenes/${id}`, {}, sceneSchema);
-        if (request === selectionRequest) set({ scene, saveFailed: false });
+        const scene = await request(`/api/admin/scenes/${id}`, {}, sceneSchema);
+        if (selection === selectionRequest)
+          commit({ scene, saveFailed: false });
       });
-      if (request === selectionRequest) set({ loading: false });
+      if (selection === selectionRequest) set({ loading: false });
     },
     selectObject: (selectedId) => set({ selectedId, selectedContentId: null }),
     selectContent: (selectedContentId) =>
       set({ selectedContentId, selectedId: null }),
     createScene: async (name) => {
-      await tracked(async () => {
-        const scene = await api(
+      await tracked(async ({ request, commit }) => {
+        const scene = await request(
           "/api/admin/scenes",
           json("POST", { name }),
           sceneSchema,
         );
-        set({ scene, selectedId: null, selectedContentId: null });
-        await loadScenes();
+        commit({ scene, selectedId: null, selectedContentId: null });
+        await loadScenes({ request, commit });
       });
     },
     deleteScene: async () => {
-      await tracked(async () => {
+      await tracked(async ({ request, commit }) => {
         await queue;
         const scene = get().scene;
         if (!scene) return;
-        await api(`/api/admin/scenes/${scene.id}`, json("DELETE"));
-        set({
+        await request(`/api/admin/scenes/${scene.id}`, json("DELETE"));
+        commit({
           scene: null,
           selectedId: null,
           selectedContentId: null,
           activeId: get().activeId === scene.id ? null : get().activeId,
         });
-        await loadScenes();
+        await loadScenes({ request, commit });
       });
     },
     updateScene: async (patch) => {
       const scene = get().scene;
       if (!scene) return false;
       return (
-        (await tracked(async () => {
+        (await tracked(async ({ request, commit }) => {
           await queue;
-          const result = await api(
+          const result = await request(
             `/api/admin/scenes/${scene.id}`,
             json("PATCH", patch),
             sceneSchema,
           );
           if (get().scene?.id === scene.id)
-            set((s) => ({
+            commit((s) => ({
               scene: s.scene && {
                 ...s.scene,
                 ...(patch.name !== undefined ? { name: result.name } : {}),
@@ -274,20 +360,20 @@ export const useEditor = create<EditorState>((set, get) => {
                   : {}),
               },
             }));
-          await loadScenes();
+          await loadScenes({ request, commit });
           return true;
         })) ?? false
       );
     },
     present: async (id) => {
-      await tracked(async () => {
+      await tracked(async ({ request, commit }) => {
         if (id) await queue;
-        await api("/api/admin/presentation", json("PUT", { sceneId: id }));
-        set({ activeId: id });
+        await request("/api/admin/presentation", json("PUT", { sceneId: id }));
+        commit({ activeId: id });
       });
     },
     addObject: async (asset) => {
-      await tracked(async () => {
+      await tracked(async ({ request, commit }) => {
         const scene = get().scene;
         if (!scene) return;
         const image = new Image();
@@ -298,7 +384,7 @@ export const useEditor = create<EditorState>((set, get) => {
           400 / image.naturalHeight,
           1,
         );
-        const object = await api(
+        const object = await request(
           `/api/admin/scenes/${scene.id}/objects`,
           json("POST", {
             assetId: asset.id,
@@ -308,7 +394,7 @@ export const useEditor = create<EditorState>((set, get) => {
           objectSchema,
         );
         if (get().scene?.id === scene.id)
-          set((s) => ({
+          commit((s) => ({
             scene: s.scene && {
               ...s.scene,
               objects: [...s.scene.objects, object],
@@ -343,15 +429,15 @@ export const useEditor = create<EditorState>((set, get) => {
       if (!writing) queue = flushObjects();
     },
     deleteObject: async (id) => {
-      await tracked(async () => {
+      await tracked(async ({ request, commit }) => {
         await queue;
         const scene = get().scene;
         if (!scene) return;
-        await api(
+        await request(
           `/api/admin/scenes/${scene.id}/objects/${id}`,
           json("DELETE"),
         );
-        set((s) => ({
+        commit((s) => ({
           scene: s.scene && {
             ...s.scene,
             objects: s.scene.objects.filter((o) => o.id !== id),
@@ -364,14 +450,14 @@ export const useEditor = create<EditorState>((set, get) => {
     addContent: async (input) => {
       const sceneId = get().scene?.id;
       if (!sceneId) return false;
-      const result = await tracked(async () => {
-        const item = await api(
+      const result = await tracked(async ({ request, commit }) => {
+        const item = await request(
           `/api/admin/scenes/${sceneId}/content`,
           json("POST", input),
           sceneContentSchema,
         );
         if (get().scene?.id === sceneId)
-          set((s) => ({
+          commit((s) => ({
             scene: s.scene && {
               ...s.scene,
               content: [...s.scene.content, item],
@@ -386,9 +472,9 @@ export const useEditor = create<EditorState>((set, get) => {
     copyContent: async (sourceId, id) => {
       const targetId = get().scene?.id;
       if (!targetId) return false;
-      const result = await tracked(async () => {
+      const result = await tracked(async ({ request, check }) => {
         await queue;
-        const source = await api(
+        const source = await request(
           `/api/admin/scenes/${sourceId}`,
           {},
           sceneSchema,
@@ -400,6 +486,7 @@ export const useEditor = create<EditorState>((set, get) => {
           );
         if (get().scene?.id !== targetId) return false;
         const { id: _id, sceneId: _sceneId, ...input } = item;
+        check();
         return get().addContent(
           contentInputSchema.parse({ ...input, visible: false }),
         );
@@ -439,11 +526,14 @@ export const useEditor = create<EditorState>((set, get) => {
     deleteContent: async (id) => {
       const sceneId = get().scene?.id;
       if (!sceneId) return false;
-      const result = await tracked(async () => {
+      const result = await tracked(async ({ request, commit }) => {
         await queue;
-        await api(`/api/admin/scenes/${sceneId}/content/${id}`, json("DELETE"));
+        await request(
+          `/api/admin/scenes/${sceneId}/content/${id}`,
+          json("DELETE"),
+        );
         if (get().scene?.id === sceneId)
-          set((s) => ({
+          commit((s) => ({
             scene: s.scene && {
               ...s.scene,
               content: s.scene.content.filter((c) => c.id !== id),
@@ -457,10 +547,10 @@ export const useEditor = create<EditorState>((set, get) => {
     },
     deleteAsset: async (id) => {
       set({ error: null });
-      const result = await tracked(async () => {
+      const result = await tracked(async ({ request, commit }) => {
         await queue;
-        await api(`/api/admin/assets/${id}`, json("DELETE"));
-        set((s) => ({
+        await request(`/api/admin/assets/${id}`, json("DELETE"));
+        commit((s) => ({
           assets: s.assets.filter((a) => a.id !== id),
           scenes: s.scenes.map((scene) =>
             scene.backgroundAssetId === id
@@ -486,25 +576,25 @@ export const useEditor = create<EditorState>((set, get) => {
       return result === true;
     },
     importImages: async (files, category) => {
-      await tracked(async () => {
+      await tracked(async ({ request, commit }) => {
         try {
           for (const file of files) {
             const data = new FormData();
             data.append("file", file);
-            await api(`/api/admin/assets?category=${category}`, {
+            await request(`/api/admin/assets?category=${category}`, {
               method: "POST",
               body: data,
             });
           }
         } finally {
-          await loadAssets();
+          await loadAssets({ request, commit });
         }
       });
     },
     scan: async () => {
-      await tracked(async () => {
-        await api("/api/admin/assets/scan", json("POST"));
-        await loadAssets();
+      await tracked(async ({ request, commit }) => {
+        await request("/api/admin/assets/scan", json("POST"));
+        await loadAssets({ request, commit });
       });
     },
   };

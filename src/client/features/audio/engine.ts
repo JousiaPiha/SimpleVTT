@@ -1,4 +1,5 @@
 import type { Asset } from "../../../shared/contracts.js";
+import { mediaUrl } from "../../api.js";
 import {
   audioPreferencesSchema,
   DEFAULT_AUDIO_PREFERENCES,
@@ -183,7 +184,7 @@ export class AudioEngine {
     const context = this.ready(asset);
     const element = new Audio();
     element.preload = "metadata";
-    element.src = `/media/${encodeURIComponent(asset.id)}`;
+    element.src = mediaUrl(asset.id);
     element.loop = category === "ambience";
     const source = context.createMediaElementSource(element);
     const gain = category === "ambience" ? context.createGain() : undefined;
@@ -466,7 +467,7 @@ export class AudioEngine {
     asset: Asset,
     signal: AbortSignal,
   ): Promise<ArrayBuffer> {
-    const response = await fetch(`/media/${encodeURIComponent(asset.id)}`, {
+    const response = await fetch(mediaUrl(asset.id), {
       signal,
     });
     if (!response.ok)

@@ -1,18 +1,19 @@
-import {
-  onlineAudioService,
-  type OnlineAudioOptions,
-} from "./services/online-audio.js";
-import Fastify from "fastify";
+import type { OnlineAudioOptions } from "./services/online-audio.js";
+import Fastify, { type FastifyRequest } from "fastify";
 import websocket from "@fastify/websocket";
 import staticFiles from "@fastify/static";
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
+import type { ReadStream } from "node:fs";
 import { ZodError } from "zod";
 import type { WebSocket } from "ws";
-import { openStore } from "./database/store.js";
+import {
+  createSessionManager,
+  type SessionContext,
+} from "./services/sessions.js";
+import { sessionRoutes } from "./api/sessions.js";
 import { registerAuth, sameOrigin } from "./services/auth.js";
 import { diffPresentation, publicScene } from "./services/presentation.js";
-import { mediaService } from "./services/media.js";
 import { byteRange } from "./services/byte-range.js";
 import { registerLaser } from "./services/laser.js";
 import { adminRoutes } from "./api/admin.js";
@@ -25,6 +26,7 @@ export interface AppOptions {
   logger?: boolean;
   staticDir?: string;
   onlineAudio?: OnlineAudioOptions;
+  sessionsRoot?: string;
 }
 export async function buildApp(options: AppOptions) {
   if (!options.adminPassword)
@@ -33,19 +35,33 @@ export async function buildApp(options: AppOptions) {
     logger: options.logger ?? true,
     bodyLimit: 1024 * 1024,
   });
-  const store = openStore(options.dataDir);
-  app.addHook("onClose", async () => store.close());
-  const media = await mediaService(
-    options.mediaDir ?? join(options.dataDir, "media"),
-    store,
-    app.log,
-  );
-  const onlineAudio = await onlineAudioService(
-    options.dataDir,
-    media,
-    options.onlineAudio,
-  );
-  app.addHook("preClose", async () => onlineAudio.close());
+  const sessions = await createSessionManager({
+    dataDir: options.dataDir,
+    mediaDir: options.mediaDir,
+    sessionsRoot: options.sessionsRoot,
+    onlineAudio: options.onlineAudio,
+    logger: app.log,
+  });
+  const initialGeneration = sessions.status().generation;
+  const requestContexts = new WeakMap<FastifyRequest, SessionContext>();
+  const activeRequests = new Set<FastifyRequest>();
+  const streams = new Map<SessionContext, Set<ReadStream>>();
+  const closing = new WeakSet<SessionContext>();
+  sessions.setBeforeClose(async (context) => {
+    closing.add(context);
+    await Promise.all(
+      [...(streams.get(context) ?? [])].map(
+        (stream) =>
+          new Promise<void>((done) => {
+            if (stream.closed) return done();
+            stream.once("close", done);
+            stream.destroy();
+          }),
+      ),
+    );
+    streams.delete(context);
+  });
+  app.addHook("onClose", async () => sessions.shutdown());
   const authenticated = await registerAuth(
     app,
     options.adminPassword,
@@ -59,6 +75,15 @@ export async function buildApp(options: AppOptions) {
       reply.header("Cache-Control", "no-store");
   });
   app.setErrorHandler((error, req, reply) => {
+    const code = (error as NodeJS.ErrnoException).code ?? "";
+    if (
+      requestContexts.has(req) &&
+      !["GET", "HEAD"].includes(req.method) &&
+      /^(SQLITE_(IOERR|FULL|READONLY|CANTOPEN)|ENOSPC|EIO|EROFS|ENODEV|ESTALE|ENOENT|EACCES|EPERM)/.test(
+        code,
+      )
+    )
+      sessions.markStorageError(error);
     if (error instanceof ZodError)
       return reply.code(400).send({
         error: "Invalid request",
@@ -81,9 +106,7 @@ export async function buildApp(options: AppOptions) {
       error: error instanceof Error ? error.message : "Request failed",
     });
   });
-  const isPublicAsset = (id: string) =>
-    store.getAsset(id).mimeType.startsWith("image/");
-  let current = publicScene(store.liveScene(), isPublicAsset);
+  let current: ReturnType<typeof publicScene> = null;
   const clients = new Set<WebSocket>();
   const broadcast = (event: unknown) => {
     const payload = JSON.stringify(event);
@@ -96,15 +119,33 @@ export async function buildApp(options: AppOptions) {
       client.send(payload);
     }
   };
-  const publish = () => {
-    const next = publicScene(store.liveScene(), isPublicAsset);
+  const publish = (context: SessionContext) => {
+    if (sessions.peek() !== context || closing.has(context)) return;
+    const next = publicScene(context.store.liveScene(), (id) =>
+      context.store.getAsset(id).mimeType.startsWith("image/"),
+    );
     const event = diffPresentation(current, next);
     if (current?.id !== next?.id) laser.clear();
     current = next;
     if (event) broadcast(event);
   };
   await app.register(websocket, { options: { maxPayload: 1024 } });
-  const laser = registerLaser(app, authenticated, () => current?.id, broadcast);
+  const laser = registerLaser(
+    app,
+    authenticated,
+    () => current?.id,
+    broadcast,
+    () => sessions.status().generation,
+  );
+  let lastGeneration = initialGeneration;
+  sessions.setOnChange(() => {
+    const generation = sessions.status().generation;
+    if (generation === lastGeneration) return;
+    lastGeneration = generation;
+    laser.reset();
+    current = null;
+    broadcast({ type: "presentation.snapshot", scene: null, generation });
+  });
   app.get(
     "/ws/player",
     {
@@ -119,7 +160,11 @@ export async function buildApp(options: AppOptions) {
     (socket) => {
       clients.add(socket);
       socket.send(
-        JSON.stringify({ type: "presentation.snapshot", scene: current }),
+        JSON.stringify({
+          type: "presentation.snapshot",
+          scene: current,
+          generation: sessions.status().generation,
+        }),
       );
       socket.on("close", () => clients.delete(socket));
       socket.on("error", () => clients.delete(socket));
@@ -151,6 +196,7 @@ export async function buildApp(options: AppOptions) {
   app.get("/api/presentation", async () => ({
     type: "presentation.snapshot",
     scene: current,
+    generation: sessions.status().generation,
   }));
   await app.register(
     async (admin) => {
@@ -163,41 +209,118 @@ export async function buildApp(options: AppOptions) {
           return reply
             .code(403)
             .send({ error: "Same-origin request required" });
+        const management = /^\/api\/admin\/session(?:[/?]|$)/.test(req.url);
+        const generation = sessions.status().generation;
+        const supplied = req.headers["x-simplevtt-session"];
+        if (
+          (!management ||
+            req.url.split("?")[0] === "/api/admin/session/operations") &&
+          ((supplied && supplied !== generation) ||
+            (!management && !supplied && generation !== initialGeneration))
+        )
+          return reply.code(409).send({
+            error:
+              "The active session changed. Reload the session before continuing.",
+          });
+        if (management) return;
+        if (sessions.status().busy)
+          return reply.code(409).send({
+            error: "A session operation is in progress. Please wait.",
+          });
+        const context = sessions.require();
+        // Register before any await so a transition cannot overtake this request.
+        activeRequests.add(req);
+        requestContexts.set(req, context);
+        reply.header("X-SimpleVTT-Session", generation);
+        if (!["GET", "HEAD"].includes(req.method)) {
+          if (sessions.status().error)
+            return reply.code(503).send({
+              error:
+                "Saving has stopped. Use Sessions to retry storage or close without saving.",
+            });
+          await sessions.checkStorage();
+        }
       });
-      await adminRoutes(admin, store, media, publish, onlineAudio);
+      admin.addHook("onResponse", async (req) => {
+        activeRequests.delete(req);
+      });
+      admin.addHook("onRequestAbort", async (req) => {
+        activeRequests.delete(req);
+      });
+      await sessionRoutes(
+        admin,
+        sessions,
+        options.sessionsRoot,
+        () => activeRequests.size > 0,
+      );
+      await adminRoutes(
+        admin,
+        (request) => {
+          const context = requestContexts.get(request);
+          if (!context)
+            throw Object.assign(new Error("No session is loaded."), {
+              statusCode: 503,
+            });
+          return context;
+        },
+        publish,
+      );
     },
     { prefix: "/api/admin" },
   );
-  app.get<{ Params: { id: string } }>("/media/:id", async (req, reply) => {
-    const id = req.params.id;
-    const visible =
-      current?.backgroundAssetId === id ||
-      current?.objects.some((o) => o.assetId === id);
-    if (!authenticated(req) && !visible)
-      return reply.code(404).send({ error: "Media not found" });
-    const asset = store.getAsset(id);
-    if (!authenticated(req) && !asset.mimeType.startsWith("image/"))
-      return reply.code(404).send({ error: "Media not found" });
-    const file = await media.file(asset.relativePath);
-    reply.type(asset.mimeType).header("Accept-Ranges", "bytes");
-    if (req.headers.range !== undefined) {
-      const range = byteRange(req.headers.range, file.size);
-      if (!range)
+  app.get<{ Params: { id: string }; Querystring: { session?: string } }>(
+    "/media/:id",
+    async (req, reply) => {
+      const generation = sessions.status().generation;
+      if (
+        (req.query.session && req.query.session !== generation) ||
+        (!req.query.session && generation !== initialGeneration)
+      )
+        return reply.code(409).send({ error: "The active session changed." });
+      const context = sessions.peek();
+      if (!context || closing.has(context))
+        return reply.code(404).send({ error: "Media not found" });
+      const id = req.params.id;
+      const visible =
+        current?.backgroundAssetId === id ||
+        current?.objects.some((o) => o.assetId === id);
+      if (!authenticated(req) && !visible)
+        return reply.code(404).send({ error: "Media not found" });
+      const asset = context.store.getAsset(id);
+      if (!authenticated(req) && !asset.mimeType.startsWith("image/"))
+        return reply.code(404).send({ error: "Media not found" });
+      const file = await context.media.file(asset.relativePath);
+      if (sessions.peek() !== context || closing.has(context))
+        return reply.code(409).send({ error: "The active session changed." });
+      const track = (stream: ReadStream) => {
+        const entries = streams.get(context) ?? new Set<ReadStream>();
+        streams.set(context, entries);
+        entries.add(stream);
+        stream.once("close", () => entries.delete(stream));
+        return stream;
+      };
+      reply.type(asset.mimeType).header("Accept-Ranges", "bytes");
+      if (req.headers.range !== undefined) {
+        const range = byteRange(req.headers.range, file.size);
+        if (!range)
+          return reply
+            .code(416)
+            .header("Content-Range", `bytes */${file.size}`)
+            .send();
         return reply
-          .code(416)
-          .header("Content-Range", `bytes */${file.size}`)
-          .send();
+          .code(206)
+          .header(
+            "Content-Range",
+            `bytes ${range.start}-${range.end}/${file.size}`,
+          )
+          .header("Content-Length", range.end - range.start + 1)
+          .send(track(file.stream(range)));
+      }
       return reply
-        .code(206)
-        .header(
-          "Content-Range",
-          `bytes ${range.start}-${range.end}/${file.size}`,
-        )
-        .header("Content-Length", range.end - range.start + 1)
-        .send(file.stream(range));
-    }
-    return reply.header("Content-Length", file.size).send(file.stream());
-  });
+        .header("Content-Length", file.size)
+        .send(track(file.stream()));
+    },
+  );
   const staticDir = options.staticDir ?? resolve("dist/client");
   if (existsSync(join(staticDir, "index.html"))) {
     await app.register(staticFiles, {

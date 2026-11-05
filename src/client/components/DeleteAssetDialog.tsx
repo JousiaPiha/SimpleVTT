@@ -13,6 +13,7 @@ import type { Asset } from "../../shared/contracts.js";
 import { api } from "../api.js";
 import { useEditor } from "../stores/editor.js";
 import { useAudioStore } from "../features/audio/store.js";
+import { useSessionAccess } from "../features/sessions/access.js";
 const usageSchema = z.object({
   sceneCount: z.number().int().nonnegative(),
   backgroundCount: z.number().int().nonnegative(),
@@ -35,6 +36,7 @@ export function DeleteAssetDialog({
   const [retry, setRetry] = useState(0);
   const pending = useEditor((s) => s.pending);
   const audioBusy = useAudioStore((s) => s.busy);
+  const blocked = useSessionAccess((s) => s.blocked);
   useEffect(() => {
     let active = true;
     setUsage(null);
@@ -53,7 +55,7 @@ export function DeleteAssetDialog({
   }, [asset.id, retry]);
   return (
     <Modal
-      opened
+      opened={!blocked}
       title={`Delete ${asset.mimeType.startsWith("audio/") ? "sound" : "image"}?`}
       onClose={() => {
         if (!deleting) onClose();

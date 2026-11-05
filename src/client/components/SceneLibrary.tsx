@@ -1,10 +1,15 @@
 import { useState } from "react";
 import { Button, Group, Stack, Text, TextInput } from "@mantine/core";
 import { useEditor } from "../stores/editor.js";
+import { useSessionDraft } from "../features/sessions/drafts.js";
 export function SceneLibrary() {
   const { scenes, scene, activeId, selectScene, createScene, pending } =
     useEditor();
   const [name, setName] = useState("");
+  useSessionDraft(
+    "new scene name (create it or clear the field)",
+    !!name.trim(),
+  );
   return (
     <section className="scene-library">
       <Group justify="space-between" mb="sm">
@@ -18,7 +23,7 @@ export function SceneLibrary() {
           e.preventDefault();
           if (name.trim()) {
             await createScene(name.trim());
-            setName("");
+            if (!useEditor.getState().error) setName("");
           }
         }}
       >
