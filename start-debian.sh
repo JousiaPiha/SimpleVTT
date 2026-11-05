@@ -5,6 +5,13 @@ set -Eeuo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 cd -- "$ROOT"
 
+# Desktop sessions may omit tools installed here (including pip/pipx yt-dlp).
+# Add a fallback without changing the priority of tools already on PATH.
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="$PATH:$HOME/.local/bin" ;;
+esac
+
 server_pid=''
 finish() {
   local status=$?
