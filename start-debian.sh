@@ -121,25 +121,8 @@ if ! flock -n 9; then
   fail 'The existing launcher is not ready. Check its terminal before trying again.'
 fi
 
-if [[ -z "${ADMIN_PASSWORD:-}" ]]; then
-  [[ -t 0 ]] || fail "Run ./start-debian.sh in a terminal once to set your password. Configuration: $CONFIG_FILE"
-  printf 'A longer password is recommended, but not required.\n'
-  while true; do
-    read -r -s -p 'Choose an admin password: ' ADMIN_PASSWORD
-    printf '\n'
-    [[ -n "$ADMIN_PASSWORD" ]] || { printf 'Please enter a non-empty password.\n'; continue; }
-    read -r -s -p 'Repeat the password: ' confirmation
-    printf '\n'
-    [[ "$ADMIN_PASSWORD" == "$confirmation" ]] && break
-    printf 'Passwords did not match.\n'
-  done
-  chmod 600 "$CONFIG_FILE"
-  printf '\nexport ADMIN_PASSWORD=%q\n' "$ADMIN_PASSWORD" >> "$CONFIG_FILE"
-  unset confirmation
-  printf 'Password saved in %s (readable only by your user).\n' "$CONFIG_FILE"
-fi
-[[ -n "$ADMIN_PASSWORD" ]] || fail "ADMIN_PASSWORD must not be empty. Check $CONFIG_FILE"
-export ADMIN_PASSWORD
+# Preserve older launcher settings; new installations use setup in the web UI.
+if [[ -n "${ADMIN_PASSWORD:-}" ]]; then export ADMIN_PASSWORD; fi
 
 if [[ ! -d node_modules ]]; then
   printf 'Installing dependencies for the first launch (internet required)…\n'

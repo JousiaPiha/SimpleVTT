@@ -20,7 +20,7 @@ npm run build
 npm start
 ```
 
-On the first launch, the terminal asks you to choose and repeat an administrator password. Typing is hidden. A longer password is recommended, but any non-empty password is accepted. The server saves a salted scrypt hash in your machine configuration and reuses it on later launches, so no environment variable is required. **Ctrl+C** cancels setup without starting the server.
+The server starts immediately. Open [the administrator](http://localhost:3000/admin); if no password is configured, the page asks you to choose and confirm one, then signs you in. A longer password is recommended, but any non-empty password is accepted. The server saves a salted scrypt hash in your machine configuration and reuses it on later launches. Admin controls remain locked until setup succeeds. No terminal interaction or environment variable is required.
 
 Password configuration is stored separately from portable Sessions:
 
@@ -28,7 +28,7 @@ Password configuration is stored separately from portable Sessions:
 - macOS: `~/Library/Application Support/simple-vtt/admin-password.json`.
 - Windows: `%APPDATA%\simple-vtt\admin-password.json`.
 
-To choose a new saved password, stop the server, remove this file, and run `npm start` again. An unreadable or damaged configuration produces an error instead of silently replacing the password. Without an interactive terminal, supply `ADMIN_PASSWORD` or complete setup once beforehand.
+To choose a new saved password, stop the server, remove this file, run `npm start` again, and open `/admin`. An unreadable or damaged configuration produces an error instead of silently replacing the password. The setup page cannot change an already configured password.
 
 Optionally override the saved password for a particular launch. This does not change the saved configuration:
 
@@ -58,7 +58,7 @@ chmod +x start-debian.sh
 ./start-debian.sh
 ```
 
-The launcher asks you to choose and confirm an admin password on first use. It saves it in `~/.config/simple-vtt/launcher.conf`, readable only by your user. If you already set `ADMIN_PASSWORD` in the environment, it uses that value without saving it; add it to the configuration yourself if you want menu launches to use it too. The configuration is a trusted Bash file; quote values containing spaces or shell characters. This existing launcher configuration remains supported and supplies `ADMIN_PASSWORD` to the server; direct `npm start` uses its own saved hash unless that variable is exported in your terminal.
+The launcher starts the server and opens your browser. On first use, choose your password on the admin page; both the launcher and direct `npm start` use the saved hash described above. Existing `ADMIN_PASSWORD` entries in `~/.config/simple-vtt/launcher.conf` remain supported and override the saved hash. If you prefer browser setup, remove that export and restart. The launcher configuration is a trusted Bash file; quote values containing spaces or shell characters.
 
 On first launch, missing dependencies are installed with `npm ci` (internet required), and a missing production build is generated. Subsequent launches work offline. After pulling code updates, stop the server and run `npm ci && npm run build` before launching again.
 
@@ -185,7 +185,7 @@ Environment variables (resolved from the project working directory):
 
 | Variable         | Default            | Purpose                                         |
 | ---------------- | ------------------ | ----------------------------------------------- |
-| `ADMIN_PASSWORD` | Saved password or terminal setup | Optional non-empty password override; longer is recommended |
+| `ADMIN_PASSWORD` | Saved password or web setup | Optional non-empty password override; longer is recommended |
 | `HOST`           | `127.0.0.1`        | Interface to bind; `0.0.0.0` enables LAN access |
 | `PORT`           | `3000`             | HTTP/WebSocket port                             |
 | `DATA_DIR`       | `./data`           | Default Session database and data directory     |
@@ -200,7 +200,7 @@ Environment files are not loaded automatically. Run commands from the project di
 ## Development and verification
 
 ```sh
-# Terminal 1: run the API on port 3000 (prompts for a password if needed)
+# Terminal 1: run the API on port 3000 (password setup happens in /admin)
 npm run dev
 
 # Terminal 2: Vite on http://localhost:5173/admin, proxying API/media/WebSocket

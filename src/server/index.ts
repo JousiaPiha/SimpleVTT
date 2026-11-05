@@ -9,8 +9,9 @@ async function start() {
   const port = Number(process.env.PORT ?? 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error("PORT must be an integer from 1 to 65535");
+  const passwordFile = adminPasswordPath();
   const password = await loadAdminPassword(
-    adminPasswordPath(),
+    passwordFile,
     process.env.ADMIN_PASSWORD,
   );
   const app = await buildApp({
@@ -20,6 +21,7 @@ async function start() {
       : undefined,
     sessionsRoot: process.env.SESSIONS_ROOT,
     adminPassword: password,
+    adminPasswordFile: passwordFile,
     onlineAudio: {
       ytDlpPath: process.env.YT_DLP_PATH,
       ffmpegDirectory: process.env.FFMPEG_DIRECTORY,

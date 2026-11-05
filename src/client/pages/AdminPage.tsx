@@ -1,4 +1,5 @@
 import { DrawingToolbar } from "../features/drawing/DrawingToolbar.js";
+import { authStatusSchema } from "../../shared/contracts.js";
 import type { DrawingTool } from "../../shared/drawing.js";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -25,7 +26,7 @@ import {
   ImageOff,
 } from "lucide-react";
 import { useLaserPointer } from "../features/laser/useLaserPointer.js";
-import { api, json, setSessionGeneration } from "../api.js";
+import { ApiError, api, json, setSessionGeneration } from "../api.js";
 import { resetEditorForSession, useEditor } from "../stores/editor.js";
 import { useSessionStatus } from "../features/sessions/useSessionStatus.js";
 import {
@@ -53,6 +54,8 @@ import {
 export default function AdminPage() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [setupRequired, setSetupRequired] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [signingIn, setSigningIn] = useState(false);
   const [rename, setRename] = useState(false);
@@ -167,8 +170,11 @@ export default function AdminPage() {
     return () => window.removeEventListener("keydown", escape);
   }, [laserMode, drawingTool]);
   useEffect(() => {
-    api<{ authenticated: boolean }>("/api/auth/session")
-      .then((s) => setAuthenticated(s.authenticated))
+    api("/api/auth/session", {}, authStatusSchema)
+      .then((s) => {
+        setSetupRequired(s.setupRequired);
+        setAuthenticated(s.authenticated);
+      })
       .catch(() => {
         setLoginError("Cannot reach the server. Try signing in again.");
         setAuthenticated(false);
@@ -186,24 +192,50 @@ export default function AdminPage() {
         <div className="login-panel">
           <div className="brand-mark">S</div>
           <Title order={1} size="h2" mb="xs">
-            SimpleVTT
+            {setupRequired ? "Welcome to SimpleVTT" : "SimpleVTT"}
           </Title>
           <Text c="dimmed" mb="xl">
-            Your table. Your presentation.
+            {setupRequired
+              ? "Choose an administrator password to get started."
+              : "Your table. Your presentation."}
           </Text>
           <form
             onSubmit={async (e) => {
               e.preventDefault();
+              if (setupRequired && password !== confirmation) {
+                setLoginError("Passwords did not match.");
+                return;
+              }
               setSigningIn(true);
               setLoginError(null);
               try {
-                await api("/api/auth/login", json("POST", { password }));
+                const status = await api(
+                  setupRequired ? "/api/auth/setup" : "/api/auth/login",
+                  json(
+                    "POST",
+                    setupRequired ? { password, confirmation } : { password },
+                  ),
+                  authStatusSchema,
+                );
                 setPassword("");
-                setAuthenticated(true);
+                setConfirmation("");
+                setSetupRequired(status.setupRequired);
+                setAuthenticated(status.authenticated);
               } catch (error) {
                 setLoginError(
                   error instanceof Error ? error.message : "Sign in failed",
                 );
+                if (error instanceof ApiError && error.status === 409) {
+                  const status = await api(
+                    "/api/auth/session",
+                    {},
+                    authStatusSchema,
+                  ).catch(() => null);
+                  if (status) {
+                    setSetupRequired(status.setupRequired);
+                    setAuthenticated(status.authenticated);
+                  }
+                }
               } finally {
                 setSigningIn(false);
               }
@@ -212,14 +244,32 @@ export default function AdminPage() {
             <Stack>
               <PasswordInput
                 label="Administrator password"
-                autoComplete="current-password"
+                autoComplete={
+                  setupRequired ? "new-password" : "current-password"
+                }
+                maxLength={1024}
                 value={password}
                 onChange={(e) => setPassword(e.currentTarget.value)}
                 required
               />
+              {setupRequired && (
+                <>
+                  <PasswordInput
+                    label="Confirm password"
+                    autoComplete="new-password"
+                    maxLength={1024}
+                    value={confirmation}
+                    onChange={(e) => setConfirmation(e.currentTarget.value)}
+                    required
+                  />
+                  <Text size="sm" c="dimmed">
+                    A longer password is recommended, but not required.
+                  </Text>
+                </>
+              )}
               {loginError ? <Alert color="red">{loginError}</Alert> : null}
               <Button type="submit" loading={signingIn}>
-                Sign in
+                {setupRequired ? "Create password" : "Sign in"}
               </Button>
             </Stack>
           </form>

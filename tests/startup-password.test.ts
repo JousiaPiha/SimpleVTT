@@ -2,12 +2,11 @@ import { afterEach, expect, test } from "vitest";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
 import { buildApp } from "../src/server/app.js";
 import {
   adminPasswordPath,
   loadAdminPassword,
-  promptForAdminPassword,
+  saveAdminPassword,
 } from "../src/server/services/startup-password.js";
 
 const roots: string[] = [];
@@ -47,7 +46,7 @@ async function accepts(
 test("first setup saves a hash outside the session and subsequent starts reuse it without prompting", async () => {
   const root = await directory();
   const file = join(root, "config", "admin-password.json");
-  const credential = await loadAdminPassword(file, undefined, async () => "x");
+  const credential = await saveAdminPassword(file, "x");
   expect(await accepts(credential, "x")).toBe(200);
   expect(await accepts(credential, "y")).toBe(401);
   const saved = await readFile(file, "utf8");
@@ -55,9 +54,7 @@ test("first setup saves a hash outside the session and subsequent starts reuse i
   expect(JSON.parse(saved).hash).not.toBe("x");
   if (process.platform !== "win32")
     expect((await stat(file)).mode & 0o777).toBe(0o600);
-  const restored = await loadAdminPassword(file, undefined, async () => {
-    throw new Error("Should use saved configuration");
-  });
+  const restored = await loadAdminPassword(file);
   expect(await accepts(restored, "x")).toBe(200);
   expect(await readFile(file, "utf8")).toBe(saved);
 });
@@ -65,62 +62,46 @@ test("first setup saves a hash outside the session and subsequent starts reuse i
 test("environment password overrides saved configuration without replacing it", async () => {
   const root = await directory();
   const file = join(root, "admin-password.json");
-  await loadAdminPassword(file, undefined, async () => "saved-password");
+  await saveAdminPassword(file, "saved-password");
   const before = await readFile(file, "utf8");
-  const override = await loadAdminPassword(
-    file,
-    "override-password",
-    async () => {
-      throw new Error("No prompt expected");
-    },
-  );
+  const override = await loadAdminPassword(file, "override-password");
   expect(await accepts(override, "override-password")).toBe(200);
   expect(await accepts(override, "saved-password")).toBe(401);
   expect(await readFile(file, "utf8")).toBe(before);
 });
 
-test("corrupt configuration and cancellation do not silently replace a password", async () => {
+test("missing configuration starts unconfigured without creating a password file", async () => {
   const root = await directory();
   const file = join(root, "admin-password.json");
-  await writeFile(file, "broken");
-  await expect(
-    loadAdminPassword(file, undefined, async () => "replacement"),
-  ).rejects.toThrow(/configuration/i);
-  expect(await readFile(file, "utf8")).toBe("broken");
-  await rm(file);
-  await expect(
-    loadAdminPassword(file, undefined, async () => {
-      throw new Error("Password setup cancelled");
-    }),
-  ).rejects.toThrow(/cancelled/i);
+  expect(await loadAdminPassword(file)).toBeNull();
   await expect(stat(file)).rejects.toMatchObject({ code: "ENOENT" });
 });
 
-test("refuses to start if configuration cannot be saved", async () => {
+test("corrupt configuration is not silently replaced", async () => {
+  const root = await directory();
+  const file = join(root, "admin-password.json");
+  await writeFile(file, "broken");
+  await expect(loadAdminPassword(file)).rejects.toThrow(/configuration/i);
+  expect(await readFile(file, "utf8")).toBe("broken");
+});
+
+test("reports when configuration cannot be saved", async () => {
   const root = await directory();
   const parent = join(root, "not-a-folder");
+  await writeFile(parent, "preserve");
   await expect(
-    loadAdminPassword(
-      join(parent, "admin-password.json"),
-      undefined,
-      async () => {
-        await writeFile(parent, "preserve");
-        return "x";
-      },
-    ),
+    saveAdminPassword(join(parent, "admin-password.json"), "x"),
   ).rejects.toThrow(/save.*configuration/i);
   expect(await readFile(parent, "utf8")).toBe("preserve");
 });
 
-test("does not overwrite a configuration created while the prompt was open", async () => {
+test("does not overwrite a configuration created by another setup", async () => {
   const root = await directory();
   const file = join(root, "admin-password.json");
-  await expect(
-    loadAdminPassword(file, undefined, async () => {
-      await writeFile(file, "another process");
-      return "x";
-    }),
-  ).rejects.toThrow();
+  await writeFile(file, "another process");
+  await expect(saveAdminPassword(file, "x")).rejects.toMatchObject({
+    code: "EEXIST",
+  });
   expect(await readFile(file, "utf8")).toBe("another process");
 });
 
@@ -137,53 +118,4 @@ test("uses machine configuration locations on Linux, macOS and Windows", () => {
   expect(
     adminPasswordPath("win32", "C:\\Users\\GM", { APPDATA: "D:\\Settings" }),
   ).toBe("D:\\Settings\\simple-vtt\\admin-password.json");
-});
-
-function terminal(answers: string[]) {
-  let raw = false;
-  const input = Object.assign(new PassThrough(), {
-    isTTY: true,
-    setRawMode: (value: boolean) => {
-      raw = value;
-    },
-  });
-  const output = Object.assign(new PassThrough(), { isTTY: true });
-  let transcript = "";
-  output.on("data", (chunk: Buffer) => {
-    const text = chunk.toString();
-    transcript += text;
-    if (text.endsWith(": ")) {
-      const answer = answers.shift();
-      if (answer === undefined) throw new Error("Unexpected password prompt");
-      queueMicrotask(() => input.write(answer));
-    }
-  });
-  return { input, output, transcript: () => transcript, raw: () => raw };
-}
-
-test("interactive setup hides typing, retries empty/mismatched input and accepts a short password", async () => {
-  const tty = terminal(["\r", "mismatch\r", "different\r", "x\r", "x\r"]);
-  expect(await promptForAdminPassword(tty.input, tty.output)).toBe("x");
-  expect(tty.transcript()).not.toContain("mismatch");
-  expect(tty.transcript()).not.toContain("different");
-  expect(tty.transcript()).toMatch(/non-empty/i);
-  expect(tty.transcript()).toMatch(/did not match/i);
-  expect(tty.raw()).toBe(false);
-});
-
-test.each(["\u0003", "\u0004"])(
-  "interactive cancellation restores the terminal (%j)",
-  async (key) => {
-    const tty = terminal([key]);
-    await expect(promptForAdminPassword(tty.input, tty.output)).rejects.toThrow(
-      /cancelled/i,
-    );
-    expect(tty.raw()).toBe(false);
-  },
-);
-
-test("a missing password without an interactive terminal explains how to configure startup", async () => {
-  await expect(
-    promptForAdminPassword(new PassThrough(), new PassThrough()),
-  ).rejects.toThrow(/ADMIN_PASSWORD/);
 });

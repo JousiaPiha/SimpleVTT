@@ -22,7 +22,8 @@ import { adminRoutes } from "./api/admin.js";
 export interface AppOptions {
   dataDir: string;
   mediaDir?: string;
-  adminPassword: string | PasswordHash;
+  adminPassword: string | PasswordHash | null;
+  adminPasswordFile?: string;
   secureCookie?: boolean;
   logger?: boolean;
   staticDir?: string;
@@ -30,9 +31,14 @@ export interface AppOptions {
   sessionsRoot?: string;
 }
 export async function buildApp(options: AppOptions) {
-  if (!options.adminPassword)
+  if (options.adminPassword === "" || options.adminPassword === undefined)
     throw new Error("ADMIN_PASSWORD must not be empty");
-  const credential = resolvePasswordHash(options.adminPassword);
+  if (options.adminPassword === null && !options.adminPasswordFile)
+    throw new Error("Password setup requires a machine configuration file");
+  const credential =
+    options.adminPassword === null
+      ? null
+      : resolvePasswordHash(options.adminPassword);
   const app = Fastify({
     logger: options.logger ?? true,
     bodyLimit: 1024 * 1024,
@@ -68,6 +74,7 @@ export async function buildApp(options: AppOptions) {
     app,
     credential,
     options.secureCookie ?? false,
+    options.adminPasswordFile,
   );
   app.addHook("onRequest", async (req, reply) => {
     reply

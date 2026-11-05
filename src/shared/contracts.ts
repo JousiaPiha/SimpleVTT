@@ -82,6 +82,18 @@ export const presentationInputSchema = z
 export const loginSchema = z
   .object({ password: z.string().min(1).max(1024) })
   .strict();
+export const passwordSetupSchema = loginSchema
+  .extend({
+    confirmation: z.string().min(1).max(1024),
+  })
+  .refine((value) => value.password === value.confirmation, {
+    message: "Passwords did not match.",
+    path: ["confirmation"],
+  });
+export const authStatusSchema = z.object({
+  authenticated: z.boolean(),
+  setupRequired: z.boolean(),
+});
 export const publicObjectSchema = objectSchema.omit({
   name: true,
   sceneId: true,
