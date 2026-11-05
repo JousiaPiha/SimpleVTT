@@ -13,6 +13,7 @@ import {
 } from "./services/sessions.js";
 import { sessionRoutes } from "./api/sessions.js";
 import { registerAuth, sameOrigin } from "./services/auth.js";
+import { resolvePasswordHash, type PasswordHash } from "./services/password.js";
 import { diffPresentation, publicScene } from "./services/presentation.js";
 import { byteRange } from "./services/byte-range.js";
 import { registerLaser } from "./services/laser.js";
@@ -21,7 +22,7 @@ import { adminRoutes } from "./api/admin.js";
 export interface AppOptions {
   dataDir: string;
   mediaDir?: string;
-  adminPassword: string;
+  adminPassword: string | PasswordHash;
   secureCookie?: boolean;
   logger?: boolean;
   staticDir?: string;
@@ -31,6 +32,7 @@ export interface AppOptions {
 export async function buildApp(options: AppOptions) {
   if (!options.adminPassword)
     throw new Error("ADMIN_PASSWORD must not be empty");
+  const credential = resolvePasswordHash(options.adminPassword);
   const app = Fastify({
     logger: options.logger ?? true,
     bodyLimit: 1024 * 1024,
@@ -64,7 +66,7 @@ export async function buildApp(options: AppOptions) {
   app.addHook("onClose", async () => sessions.shutdown());
   const authenticated = await registerAuth(
     app,
-    options.adminPassword,
+    credential,
     options.secureCookie ?? false,
   );
   app.addHook("onRequest", async (req, reply) => {

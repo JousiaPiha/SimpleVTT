@@ -8,6 +8,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import { loginSchema } from "../../shared/contracts.js";
+import { resolvePasswordHash, type PasswordHash } from "./password.js";
 
 const SESSION_SECONDS = 12 * 60 * 60;
 const digest = (token: string) =>
@@ -26,11 +27,12 @@ export function sameOrigin(request: FastifyRequest): boolean {
 }
 export async function registerAuth(
   app: FastifyInstance,
-  password: string,
+  password: string | PasswordHash,
   secureCookie: boolean,
 ) {
-  const salt = randomBytes(16);
-  const hash = scryptSync(password, salt, 64);
+  const credential = resolvePasswordHash(password);
+  const salt = Buffer.from(credential.salt, "hex");
+  const hash = Buffer.from(credential.hash, "hex");
   const sessions = new Map<string, number>();
   await app.register(cookie);
   await app.register(rateLimit, { global: false });

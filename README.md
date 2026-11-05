@@ -17,9 +17,20 @@ From this project directory:
 ```sh
 npm install
 npm run build
+npm start
 ```
 
-Set a non-empty administrator password, then start the server. A longer password is recommended, but there is no minimum length requirement beyond being non-empty:
+On the first launch, the terminal asks you to choose and repeat an administrator password. Typing is hidden. A longer password is recommended, but any non-empty password is accepted. The server saves a salted scrypt hash in your machine configuration and reuses it on later launches, so no environment variable is required. **Ctrl+C** cancels setup without starting the server.
+
+Password configuration is stored separately from portable Sessions:
+
+- Linux: `~/.config/simple-vtt/admin-password.json` (or `$XDG_CONFIG_HOME/simple-vtt/admin-password.json`).
+- macOS: `~/Library/Application Support/simple-vtt/admin-password.json`.
+- Windows: `%APPDATA%\simple-vtt\admin-password.json`.
+
+To choose a new saved password, stop the server, remove this file, and run `npm start` again. An unreadable or damaged configuration produces an error instead of silently replacing the password. Without an interactive terminal, supply `ADMIN_PASSWORD` or complete setup once beforehand.
+
+Optionally override the saved password for a particular launch. This does not change the saved configuration:
 
 ```sh
 # macOS / Linux — enter your own password; do not use a shared example password
@@ -34,7 +45,7 @@ $env:ADMIN_PASSWORD = 'replace-with-your-own-password'
 npm start
 ```
 
-Open [the administrator](http://localhost:3000/admin). The server listens only on `127.0.0.1` by default. Administrator sign-ins last 12 hours and require signing in again after a server restart. Changing `ADMIN_PASSWORD` takes effect on restart. No password is saved in the database; startup derives a scrypt hash, and authentication tokens are stored as hashes in memory.
+Open [the administrator](http://localhost:3000/admin). The server listens only on `127.0.0.1` by default. Administrator sign-ins last 12 hours and require signing in again after a server restart. Changing `ADMIN_PASSWORD` takes effect on restart. No password is saved in a session database; authentication tokens are stored as hashes in memory.
 
 ## Debian / KDE Plasma launcher
 
@@ -47,7 +58,7 @@ chmod +x start-debian.sh
 ./start-debian.sh
 ```
 
-The launcher asks you to choose and confirm an admin password on first use. It saves it in `~/.config/simple-vtt/launcher.conf`, readable only by your user. If you already set `ADMIN_PASSWORD` in the environment, it uses that value without saving it; add it to the configuration yourself if you want menu launches to use it too. The configuration is a trusted Bash file; quote values containing spaces or shell characters.
+The launcher asks you to choose and confirm an admin password on first use. It saves it in `~/.config/simple-vtt/launcher.conf`, readable only by your user. If you already set `ADMIN_PASSWORD` in the environment, it uses that value without saving it; add it to the configuration yourself if you want menu launches to use it too. The configuration is a trusted Bash file; quote values containing spaces or shell characters. This existing launcher configuration remains supported and supplies `ADMIN_PASSWORD` to the server; direct `npm start` uses its own saved hash unless that variable is exported in your terminal.
 
 On first launch, missing dependencies are installed with `npm ci` (internet required), and a missing production build is generated. Subsequent launches work offline. After pulling code updates, stop the server and run `npm ci && npm run build` before launching again.
 
@@ -174,7 +185,7 @@ Environment variables (resolved from the project working directory):
 
 | Variable         | Default            | Purpose                                         |
 | ---------------- | ------------------ | ----------------------------------------------- |
-| `ADMIN_PASSWORD` | required           | Non-empty administrator password; longer is recommended |
+| `ADMIN_PASSWORD` | Saved password or terminal setup | Optional non-empty password override; longer is recommended |
 | `HOST`           | `127.0.0.1`        | Interface to bind; `0.0.0.0` enables LAN access |
 | `PORT`           | `3000`             | HTTP/WebSocket port                             |
 | `DATA_DIR`       | `./data`           | Default Session database and data directory     |
@@ -189,7 +200,7 @@ Environment files are not loaded automatically. Run commands from the project di
 ## Development and verification
 
 ```sh
-# Terminal 1: set ADMIN_PASSWORD, then run the API on port 3000
+# Terminal 1: run the API on port 3000 (prompts for a password if needed)
 npm run dev
 
 # Terminal 2: Vite on http://localhost:5173/admin, proxying API/media/WebSocket
