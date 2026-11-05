@@ -66,6 +66,16 @@ The script adds **SimpleVTT** to KDE's application menu under Games, with a blue
 
 Edit `launcher.conf` to enable LAN access (`export HOST=0.0.0.0`), change the port or set a data directory. Existing project data in `./data` is used by default. `XDG_CONFIG_HOME` and `XDG_DATA_HOME` are respected. No sudo is needed to run the launcher or create the menu entry. Node/npm must be available in the terminal where you first run it; the menu entry preserves that PATH. If you move the project or change your Node installation, delete the desktop file and run the script again to recreate it.
 
+## Windows launcher
+
+Install Node.js **22.13 or newer** with npm, then double-click `start-windows.cmd` in the project folder. To make a desktop shortcut, use **Send to → Desktop (create shortcut)**, or set a shortcut's **Target** to the full path of `start-windows.cmd`. The script finds its own folder; the shortcut's **Start in** field can be left empty. Run it as your normal user.
+
+The first launch installs missing dependencies with `npm ci` (internet required) and creates a missing production build. It then starts the server and opens the admin dashboard in your default browser once ready. Choose your password on the web page if one is not set. Later launches work offline. Keep the console window open; **Ctrl+C** stops the server. Closing just the browser leaves it running. Startup errors stay visible until you press a key. If SimpleVTT is already running, use its existing browser tab or open `http://127.0.0.1:3000/admin`; a second launch refuses to use an occupied port.
+
+The launcher uses `data` in the project folder by default and respects the configuration environment variables listed below. To enable LAN access for desktop launches, set a Windows **user environment variable** named `HOST` to `0.0.0.0`, then sign out and back in so shortcuts inherit it. `PORT`, `DATA_DIR`, and `SESSIONS_ROOT` can be set the same way. Allow Node.js through Windows Firewall on your private network when using player devices.
+
+After downloading code updates, stop the server and run `npm ci` followed by `npm run build` in the project folder before launching again. Keep the whole project folder together, including `scripts/start-windows.mjs`; the shortcut points to the launcher, rather than a copied launcher file. When moving between Linux, macOS, and Windows, install dependencies on each machine instead of copying `node_modules` between operating systems.
+
 ## Connect a player over LAN
 
 To listen on your LAN interface, set `HOST=0.0.0.0` (or a specific local interface address) before `npm start`. Allow inbound TCP port 3000 on your **private network** firewall. On the player device, open `http://<GM-PC-LAN-IP>:3000/player`; no account is needed. Do not configure router port forwarding or expose this server to the internet.
