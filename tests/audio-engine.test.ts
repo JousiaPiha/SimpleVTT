@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AudioEngine } from "../src/client/features/audio/engine.js";
 import { DEFAULT_AUDIO_PREFERENCES } from "../src/shared/audio.js";
 import type { Asset } from "../src/shared/contracts.js";
+import { setSessionGeneration } from "../src/client/api.js";
 const asset = (id: string, category: Asset["category"] = "music"): Asset => ({
   id,
   category,
@@ -109,12 +110,120 @@ beforeEach(() => {
 });
 afterEach(() => {
   engine.dispose();
+  setSessionGeneration(null);
   vi.unstubAllGlobals();
 });
 const tick = async () => {
   for (let i = 0; i < 12; i++) await Promise.resolve();
 };
 describe("GM audio engine", () => {
+  it("requires Enable Audio for global preview without starting it on enable", async () => {
+    await engine.playPreview(asset("preview"));
+    expect(engine.getSnapshot().error).toMatch(/enable/i);
+    expect(media).toHaveLength(0);
+    await engine.enable();
+    expect(engine.getSnapshot().preview).toBeNull();
+    expect(media).toHaveLength(0);
+  });
+  it("previews global audio without changing music, ambience, effects or their queue", async () => {
+    await engine.enable();
+    await engine.setQueue([asset("song"), asset("next")]);
+    await engine.startAmbience(asset("rain", "ambience"));
+    await engine.triggerEffect(asset("bell", "effect"));
+    const before = engine.getSnapshot();
+    setSessionGeneration("session one");
+    await engine.playPreview(asset("global sound", "ambience"));
+    expect(media[2].src).toBe("/global-media/global%20sound?session=session%20one");
+    expect(media[2].loop).toBe(false);
+    expect(engine.getSnapshot().preview).toEqual({
+      asset: asset("global sound", "ambience"), status: "playing",
+    });
+    expect(engine.getSnapshot().music).toEqual(before.music);
+    expect(engine.getSnapshot().queue).toEqual(before.queue);
+    expect(engine.getSnapshot().queueIndex).toBe(before.queueIndex);
+    expect(engine.getSnapshot().ambience).toEqual(before.ambience);
+    expect(engine.getSnapshot().effectCount).toBe(1);
+    engine.stopPreview();
+    expect(engine.getSnapshot().preview).toBeNull();
+    expect(media[2].paused).toBe(true);
+    expect(media[2].src).toBe("");
+    expect(contexts[0].streams[2].connections).toEqual([]);
+    expect(media[0].paused).toBe(false);
+    expect(media[1].paused).toBe(false);
+    expect(engine.getSnapshot().effectCount).toBe(1);
+  });
+  it.each([
+    ["music", "music", 1], ["ambience", "ambience", 2], ["effect", "effects", 3],
+  ] as const)("routes %s previews through category and master volumes", async (category, channel, gainIndex) => {
+    await engine.enable();
+    engine.setVolume("master", 0.4);
+    engine.setVolume(channel, 0.3);
+    await engine.playPreview(asset("sample", category));
+    const categoryGain = contexts[0].streams[0].connections[0] as Gain;
+    expect(categoryGain).toBe(contexts[0].gains[gainIndex]);
+    expect(categoryGain.gain.value).toBe(0.3);
+    const master = categoryGain.connections[0] as Gain;
+    expect(master.gain.value).toBe(0.4);
+    expect(master.connections).toEqual([contexts[0].destination]);
+    expect(contexts[0].decodeAudioData).not.toHaveBeenCalled();
+  });
+  it("replaces a loading preview and ignores its late completion and events", async () => {
+    await engine.enable();
+    contexts[0].state = "suspended";
+    const resume = deferred<void>();
+    contexts[0].resume.mockReturnValueOnce(resume.promise);
+    const previous = engine.playPreview(asset("old"));
+    expect(engine.getSnapshot().preview?.status).toBe("loading");
+    await engine.playPreview(asset("new"));
+    resume.resolve();
+    await previous;
+    media[0].dispatchEvent(new Event("error"));
+    media[0].dispatchEvent(new Event("ended"));
+    expect(media[0].paused).toBe(true);
+    expect(media[0].src).toBe("");
+    expect(media[1].paused).toBe(false);
+    expect(engine.getSnapshot().preview?.asset.id).toBe("new");
+    expect(engine.getSnapshot().error).toBeNull();
+  });
+  it("finishes and retries failed previews without changing session playback", async () => {
+    await engine.enable();
+    await engine.playMusic(asset("song"));
+    await engine.playPreview(asset("preview"));
+    media[1].dispatchEvent(new Event("error"));
+    expect(engine.getSnapshot().preview).toBeNull();
+    expect(engine.getSnapshot().error).toMatch(/preview|missing|unsupported/i);
+    expect(media[1].paused).toBe(true);
+    expect(engine.getSnapshot().music.status).toBe("playing");
+    await engine.playPreview(asset("preview"));
+    expect(engine.getSnapshot().error).toBeNull();
+    media[2].dispatchEvent(new Event("ended"));
+    expect(engine.getSnapshot().preview).toBeNull();
+    expect(media[2].src).toBe("");
+    expect(engine.getSnapshot().music.status).toBe("playing");
+  });
+  it("cleans up a preview rejected while resuming the audio context", async () => {
+    await engine.enable();
+    contexts[0].state = "suspended";
+    contexts[0].resume.mockRejectedValueOnce(new Error("gesture needed"));
+    await engine.playPreview(asset("preview"));
+    expect(engine.getSnapshot().preview).toBeNull();
+    expect(engine.getSnapshot().error).toMatch(/gesture needed/);
+    expect(media[0].paused).toBe(true);
+    expect(media[0].src).toBe("");
+    expect(contexts[0].streams[0].connections).toEqual([]);
+    await engine.playPreview(asset("preview"));
+    expect(engine.getSnapshot().preview?.status).toBe("playing");
+  });
+  it.each(["stopAll", "dispose"] as const)("%s cancels a pending preview without late playback", async (stop) => {
+    await engine.enable();
+    const playing = engine.playPreview(asset("preview"));
+    engine[stop]();
+    await playing;
+    expect(engine.getSnapshot().preview).toBeNull();
+    expect(media[0].paused).toBe(true);
+    expect(media[0].src).toBe("");
+    expect(contexts[0].streams[0].connections).toEqual([]);
+  });
   it("removes every queue occurrence without interrupting another current track", async () => {
     await engine.enable();
     await engine.setQueue([asset("gone"), asset("keep"), asset("gone"), asset("last")], 1);

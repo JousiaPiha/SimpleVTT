@@ -510,6 +510,22 @@ a:focus-visible {
   gap: 8px;
   align-items: end;
 }
+.audio-library-toolbar.global-audio-toolbar {
+  grid-template-columns: minmax(120px, 1fr) 160px;
+}
+.global-audio-rename {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+.global-audio-rename > :first-child {
+  flex: 1 1 150px;
+}
+.global-audio-asset-row {
+  flex-wrap: wrap;
+}
 .audio-asset-list {
   overflow: auto;
   max-height: 174px;

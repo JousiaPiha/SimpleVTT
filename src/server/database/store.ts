@@ -482,6 +482,23 @@ export function openStore(
           .from(assets)
           .orderBy(asc(assets.name))
           .all(),
+      importAssets(
+        records: (Asset & { relativePath: string })[],
+        sound?: { assetId: string } & SoundboardInput,
+      ) {
+        db.transaction((tx) => {
+          for (const record of records) tx.insert(assets).values(record).run();
+          if (sound)
+            tx.insert(soundboardEntries).values({
+              assetId: sound.assetId,
+              ...soundboardInputSchema.parse({
+                group: sound.group,
+                icon: sound.icon,
+                customIconAssetId: sound.customIconAssetId,
+              }),
+            }).run();
+        });
+      },
       addAsset(input: {
         id?: string;
         name: string;

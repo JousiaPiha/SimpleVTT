@@ -44,6 +44,7 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
 # export PORT=3000
 # export DATA_DIR=/path/to/your/data
 # export SESSIONS_ROOT=/path/to/your/sessions
+# export GLOBAL_LIBRARY_DIR=/path/to/your/global-library
 CONFIG
   )
 fi

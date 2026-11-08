@@ -140,6 +140,20 @@ Audio continues across scene changes and panel navigation, exclusively in the GM
 
 Sound effects are limited to 16 MiB encoded, 120 seconds, and 64 MiB decoded per file; use music/ambience for longer clips. The effect cache, concurrent loading, and overlapping playback are bounded. Unsupported or missing audio produces a visible error. Crossfades are not implemented yet.
 
+## Global audio library
+
+In **Mixer & library → Library**, use **Session / Global library** to switch between the current session's sounds and the server's reusable collection.
+
+- **Add to global library** on a session track copies its original audio bytes into the server collection. The session keeps its own file.
+- **Preview** plays one global track without importing it or changing the music queue, ambience, or playlists. Enable Audio first. Preview uses the master and matching category volume; Stop preview, Stop all, signing out, and switching sessions stop it.
+- **Add to session** creates an independent local copy. Repeated additions reuse matching existing audio in that category, including the original session import. No audible playback starts automatically.
+- Sound effects bring their saved group, built-in icon, and custom icon image. Existing local names and soundboard settings are kept when an identical track is already in the session.
+- Global tracks can be renamed or deleted. Deletion asks for confirmation. Neither action changes copies already added to sessions; deleting a session track or clearing Default Session leaves the global library intact.
+
+The global catalog and files live in a separate `global-library` folder beside `DATA_DIR` (normally `./global-library`). The default folder is created on first use. Set `GLOBAL_LIBRARY_DIR` to an **existing empty folder**, or an existing global library, to choose another location. Keep it separate from session and media folders. If a configured drive or folder is missing, the library shows an error without recreating the path; restore it and use **Retry global library**. Session audio continues to work from its local files.
+
+Session folders remain self-contained at all times. **Save Session As** copies session assets, including imported sound icons, and excludes the rest of the global collection. Transferring a session needs no export or bundling step. Copies use extra disk space, and changes to global entries do not automatically update existing sessions. The global library is server-local and does not synchronize between machines. To back it up, stop the server and copy its entire folder, including `library.sqlite` and `media`.
+
 ## Portable sessions
 
 The **Sessions** button at the top of the administrator shows the current session name; hover over it to see its server folder. Every server start opens **Default Session**, retaining your drafts from the previous run. The player display starts blank until you click **Present scene**.
@@ -200,6 +214,7 @@ Environment variables (resolved from the project working directory):
 | `PORT`           | `3000`             | HTTP/WebSocket port                             |
 | `DATA_DIR`       | `./data`           | Default Session database and data directory     |
 | `MEDIA_DIR`      | `<DATA_DIR>/media` | Default Session image/audio library             |
+| `GLOBAL_LIBRARY_DIR` | `global-library` beside `DATA_DIR` | Server-wide audio library; an override must name an existing folder |
 | `SESSIONS_ROOT`  | Current session folder | Preferred starting folder for Open / Save As |
 | `YT_DLP_PATH` | `yt-dlp` on PATH | Optional absolute path to yt-dlp executable |
 | `FFMPEG_DIRECTORY` | PATH | Optional folder containing ffmpeg and ffprobe |

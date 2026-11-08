@@ -8,6 +8,7 @@ export default defineConfig({
     proxy: {
       "/api": "http://127.0.0.1:3000",
       "/media": "http://127.0.0.1:3000",
+      "/global-media": "http://127.0.0.1:3000",
       "/ws": { target: "ws://127.0.0.1:3000", ws: true },
     },
   },

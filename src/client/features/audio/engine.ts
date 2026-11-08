@@ -1,9 +1,10 @@
 import type { Asset } from "../../../shared/contracts.js";
-import { mediaUrl } from "../../api.js";
+import { getSessionGeneration, mediaUrl } from "../../api.js";
 import {
   audioPreferencesSchema,
   DEFAULT_AUDIO_PREFERENCES,
   isAudioAsset,
+  type AudioCategory,
   type AudioPreferences,
   type VolumeChannel,
 } from "../../../shared/audio.js";
@@ -25,6 +26,7 @@ export interface AudioSnapshot {
     status: "loading" | "playing";
   }>;
   effectCount: number;
+  preview: { asset: Asset; status: "loading" | "playing" } | null;
   preferences: AudioPreferences;
   error: string | null;
 }
@@ -51,6 +53,7 @@ export class AudioEngine {
   private context: AudioContext | null = null;
   private gains: Record<VolumeChannel, GainNode> | null = null;
   private music: Stream | null = null;
+  private preview: Stream | null = null;
   private ambience = new Map<string, Stream>();
   private effects = new Map<AudioBufferSourceNode, string>();
   private removedAssets = new Set<string>();
@@ -71,6 +74,7 @@ export class AudioEngine {
     queueIndex: -1,
     ambience: [],
     effectCount: 0,
+    preview: null,
     preferences: structuredClone(DEFAULT_AUDIO_PREFERENCES),
     error: null,
   };
@@ -119,10 +123,13 @@ export class AudioEngine {
       this.fail(error);
     }
   }
-  private ready(asset?: Asset): AudioContext {
+  private ready(
+    asset?: Asset,
+    library: "session" | "global" = "session",
+  ): AudioContext {
     if (this.disposed || !this.snapshot.enabled || !this.context)
       throw new Error("Enable Audio before playing a sound.");
-    if (asset && this.removedAssets.has(asset.id))
+    if (asset && library === "session" && this.removedAssets.has(asset.id))
       throw new Error("This audio asset has been deleted.");
     if (
       asset &&
@@ -180,20 +187,33 @@ export class AudioEngine {
     });
   }
 
-  private createStream(asset: Asset, category: "music" | "ambience"): Stream {
-    const context = this.ready(asset);
+  private createStream(
+    asset: Asset,
+    category: AudioCategory,
+    library: "session" | "global" = "session",
+  ): Stream {
+    const context = this.ready(asset, library);
     const element = new Audio();
     element.preload = "metadata";
-    element.src = mediaUrl(asset.id);
-    element.loop = category === "ambience";
+    const generation = getSessionGeneration();
+    element.src =
+      library === "global"
+        ? `/global-media/${encodeURIComponent(asset.id)}${generation ? `?session=${encodeURIComponent(generation)}` : ""}`
+        : mediaUrl(asset.id);
+    element.loop = library === "session" && category === "ambience";
     const source = context.createMediaElementSource(element);
-    const gain = category === "ambience" ? context.createGain() : undefined;
+    const gain =
+      library === "session" && category === "ambience"
+        ? context.createGain()
+        : undefined;
     if (gain) {
       gain.gain.value =
         this.snapshot.preferences.ambienceVolumes[asset.id] ?? 1;
       source.connect(gain);
       gain.connect(this.gains!.ambience);
-    } else source.connect(this.gains!.music);
+    } else {
+      source.connect(this.gains![category === "effect" ? "effects" : category]);
+    }
     return {
       asset,
       element,
@@ -215,7 +235,10 @@ export class AudioEngine {
     stream.source.disconnect();
     stream.gain?.disconnect();
   }
-  private async playStream(stream: Stream, category: "music" | "ambience") {
+  private async playStream(
+    stream: Stream,
+    category: "music" | "ambience" | "preview",
+  ) {
     const operation = ++stream.operation;
     try {
       const context = this.ready();
@@ -233,15 +256,59 @@ export class AudioEngine {
       }
       if (category === "music")
         this.update({ music: { ...this.snapshot.music, status: "playing" } });
+      else if (category === "preview")
+        this.update({ preview: { asset: stream.asset, status: "playing" } });
       else this.updateAmbience(stream.asset.id);
     } catch (error) {
       if (stream.closed || operation !== stream.operation) return;
       if (category === "music") {
         stream.element.pause();
         this.update({ music: { ...this.snapshot.music, status: "paused" } });
-      } else this.stopAmbience(stream.asset.id);
+      } else if (category === "preview") this.stopPreview();
+      else this.stopAmbience(stream.asset.id);
       this.fail(error);
     }
+  }
+  async playPreview(asset: Asset): Promise<void> {
+    try {
+      this.ready(asset, "global");
+      if (
+        asset.category !== "music" &&
+        asset.category !== "ambience" &&
+        asset.category !== "effect"
+      )
+        throw new Error("Choose an audio asset.");
+      this.stopPreview();
+      const stream = this.createStream(asset, asset.category, "global");
+      this.preview = stream;
+      const ended = () => {
+        if (this.preview === stream && !stream.closed) this.stopPreview();
+      };
+      const error = () => {
+        if (this.preview !== stream || stream.closed) return;
+        this.stopPreview();
+        this.fail(
+          new Error(
+            `Cannot preview “${asset.name}”. The file may be missing or unsupported by this browser.`,
+          ),
+        );
+      };
+      stream.element.addEventListener("ended", ended);
+      stream.element.addEventListener("error", error);
+      stream.cleanup = () => {
+        stream.element.removeEventListener("ended", ended);
+        stream.element.removeEventListener("error", error);
+      };
+      this.update({ preview: { asset, status: "loading" }, error: null });
+      await this.playStream(stream, "preview");
+    } catch (error) {
+      this.fail(error);
+    }
+  }
+  stopPreview() {
+    if (this.preview) this.closeStream(this.preview);
+    this.preview = null;
+    this.update({ preview: null });
   }
   async playMusic(asset: Asset): Promise<void> {
     await this.setQueue([asset]);
@@ -667,6 +734,7 @@ export class AudioEngine {
     this.epoch++;
     for (const { controller } of this.pending.values()) controller.abort();
     this.pending.clear();
+    this.stopPreview();
     this.stopMusic();
     for (const id of [...this.ambience.keys()]) this.stopAmbience(id);
     for (const source of this.effects.keys()) this.stopEffect(source);

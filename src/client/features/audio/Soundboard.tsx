@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActionIcon,
   Alert,
@@ -36,18 +36,20 @@ export function Soundboard() {
   const [editing, setEditing] = useState<Asset | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
+  const savedRevision = useRef(0);
   useEffect(() => {
     let active = true;
+    const revision = savedRevision.current;
     void api("/api/admin/soundboard", {}, z.array(soundboardEntrySchema))
       .then((result) => {
-        if (active) {
+        if (active && revision === savedRevision.current) {
           setEntries(result);
           setReady(true);
           setError(null);
         }
       })
       .catch((e) => {
-        if (active)
+        if (active && revision === savedRevision.current)
           setError(
             e instanceof Error ? e.message : "Could not load soundboard",
           );
@@ -55,7 +57,7 @@ export function Soundboard() {
     return () => {
       active = false;
     };
-  }, [retry]);
+  }, [retry, assets]);
   const effects = assets.filter((a) => a.category === "effect");
   const settings = new Map(entries.map((entry) => [entry.assetId, entry]));
   const imageIds = new Set(
@@ -97,6 +99,8 @@ export function Soundboard() {
       json("PUT", input),
       soundboardEntrySchema,
     );
+    // An older refresh must not overwrite settings that just finished saving.
+    savedRevision.current++;
     setEntries((old) => [
       ...old.filter((e) => e.assetId !== entry.assetId),
       entry,

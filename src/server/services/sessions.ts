@@ -56,6 +56,7 @@ export async function createSessionManager(options: {
   dataDir: string;
   mediaDir?: string;
   sessionsRoot?: string;
+  reservedPaths?: string[];
   onlineAudio?: OnlineAudioOptions;
   logger: Pick<FastifyBaseLogger, "error">;
 }) {
@@ -69,6 +70,13 @@ export async function createSessionManager(options: {
     closed = false;
   let changed = () => {},
     beforeClose: ((context: SessionContext) => Promise<void>) | undefined;
+  async function checkReserved(path: string) {
+    for (const configured of options.reservedPaths ?? []) {
+      const reserved = await realpath(configured).catch(() => resolve(configured));
+      if (within(reserved, path) || within(path, reserved))
+        failure("Session folders must be separate from the global library folder", 400);
+    }
+  }
   const status = (): SessionStatus => ({
     generation,
     active: active ? { ...active.info } : null,
@@ -147,6 +155,7 @@ export async function createSessionManager(options: {
       });
     }
     const canonical = await existingDirectory(path);
+    if (!isDefault) await checkReserved(canonical);
     const manifest = isDefault ? null : await readManifest(canonical);
     let mediaPath = isDefault ? defaultMedia : join(canonical, "media");
     let release: (() => Promise<void>) | undefined,
@@ -266,6 +275,7 @@ export async function createSessionManager(options: {
     const source = active;
     await check(source);
     const target = await existingDirectory(path);
+    await checkReserved(target);
     if (
       within(source.path, target) ||
       within(source.mediaPath, target) ||

@@ -146,6 +146,26 @@ export function AudioPanel() {
           {expanded ? "Collapse" : "Mixer & library"}
         </Button>
       </div>
+      {snapshot.preview ? (
+        <Group justify="space-between" gap="sm" px="sm" py={6}>
+          <Text
+            size="xs"
+            c="teal"
+            data-testid="preview-status"
+            style={{ overflowWrap: "anywhere", minWidth: 0 }}
+          >
+            {snapshot.preview.status === "loading" ? "Loading preview" : "Previewing"}:
+            {" "}{snapshot.preview.asset.name}
+          </Text>
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            onClick={() => audioEngine.stopPreview()}
+          >
+            Stop preview
+          </Button>
+        </Group>
+      ) : null}
       {snapshot.error ? (
         <Alert
           color="red"

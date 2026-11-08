@@ -146,6 +146,8 @@ export async function mediaService(
     return full;
   }
   return {
+    // Transfers hold this queue while copying bytes and committing related records.
+    exclusive: mutate,
     async close() {
       await pending;
     },

@@ -1,6 +1,7 @@
 node_modules
 dist/
 data/
+global-library/
 .env
 .env.*
 !.env.example

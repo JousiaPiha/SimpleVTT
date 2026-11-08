@@ -20,6 +20,7 @@ async function start() {
       ? resolve(process.env.MEDIA_DIR)
       : undefined,
     sessionsRoot: process.env.SESSIONS_ROOT,
+    globalLibraryDir: process.env.GLOBAL_LIBRARY_DIR || undefined,
     adminPassword: password,
     adminPasswordFile: passwordFile,
     onlineAudio: {

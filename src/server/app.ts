@@ -2,7 +2,7 @@ import type { OnlineAudioOptions } from "./services/online-audio.js";
 import Fastify, { type FastifyRequest } from "fastify";
 import websocket from "@fastify/websocket";
 import staticFiles from "@fastify/static";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import type { ReadStream } from "node:fs";
 import { ZodError } from "zod";
@@ -18,6 +18,8 @@ import { diffPresentation, publicScene } from "./services/presentation.js";
 import { byteRange } from "./services/byte-range.js";
 import { registerLaser } from "./services/laser.js";
 import { adminRoutes } from "./api/admin.js";
+import { createGlobalLibrary } from "./services/global-library.js";
+import { globalLibraryRoutes } from "./api/global-library.js";
 
 export interface AppOptions {
   dataDir: string;
@@ -29,6 +31,7 @@ export interface AppOptions {
   staticDir?: string;
   onlineAudio?: OnlineAudioOptions;
   sessionsRoot?: string;
+  globalLibraryDir?: string;
 }
 export async function buildApp(options: AppOptions) {
   if (options.adminPassword === "" || options.adminPassword === undefined)
@@ -43,12 +46,15 @@ export async function buildApp(options: AppOptions) {
     logger: options.logger ?? true,
     bodyLimit: 1024 * 1024,
   });
+  const globalLibraryPath = resolve(options.globalLibraryDir || join(dirname(resolve(options.dataDir)), "global-library"));
+  const globalLibrary = createGlobalLibrary({ directory: globalLibraryPath, create: !options.globalLibraryDir, logger: app.log });
   const sessions = await createSessionManager({
     dataDir: options.dataDir,
     mediaDir: options.mediaDir,
     sessionsRoot: options.sessionsRoot,
     onlineAudio: options.onlineAudio,
     logger: app.log,
+    reservedPaths: [globalLibraryPath],
   });
   const initialGeneration = sessions.status().generation;
   const requestContexts = new WeakMap<FastifyRequest, SessionContext>();
@@ -57,6 +63,7 @@ export async function buildApp(options: AppOptions) {
   const closing = new WeakSet<SessionContext>();
   sessions.setBeforeClose(async (context) => {
     closing.add(context);
+    await globalLibrary.closeStreams();
     await Promise.all(
       [...(streams.get(context) ?? [])].map(
         (stream) =>
@@ -70,6 +77,7 @@ export async function buildApp(options: AppOptions) {
     streams.delete(context);
   });
   app.addHook("onClose", async () => sessions.shutdown());
+  app.addHook("onClose", async () => globalLibrary.close());
   const authenticated = await registerAuth(
     app,
     credential,
@@ -80,7 +88,7 @@ export async function buildApp(options: AppOptions) {
     reply
       .header("X-Content-Type-Options", "nosniff")
       .header("Referrer-Policy", "same-origin");
-    if (req.url.startsWith("/api/") || req.url.startsWith("/media/"))
+    if (req.url.startsWith("/api/") || req.url.startsWith("/media/") || req.url.startsWith("/global-media/"))
       reply.header("Cache-Control", "no-store");
   });
   app.setErrorHandler((error, req, reply) => {
@@ -108,8 +116,8 @@ export async function buildApp(options: AppOptions) {
     if (status >= 500) {
       req.log.error(error);
       return reply
-        .code(500)
-        .send({ error: "The server could not complete the request" });
+        .code(status)
+        .send({ error: status === 503 && error instanceof Error ? error.message : "The server could not complete the request" });
     }
     return reply.code(status).send({
       error: error instanceof Error ? error.message : "Request failed",
@@ -274,9 +282,31 @@ export async function buildApp(options: AppOptions) {
         },
         publish,
       );
+      await globalLibraryRoutes(admin, (request) => {
+        const context = requestContexts.get(request);
+        if (!context) throw Object.assign(new Error("No session is loaded."), { statusCode: 503 });
+        return context;
+      }, globalLibrary);
     },
     { prefix: "/api/admin" },
   );
+  app.get<{ Params: { id: string }; Querystring: { session?: string } }>("/global-media/:id", async (req, reply) => {
+    if (!authenticated(req)) return reply.code(404).send({ error: "Media not found" });
+    const generation = sessions.status().generation;
+    if ((req.query.session && req.query.session !== generation) || (!req.query.session && generation !== initialGeneration))
+      return reply.code(409).send({ error: "The active session changed." });
+    const context = sessions.peek();
+    if (!context || closing.has(context)) return reply.code(404).send({ error: "Media not found" });
+    const file = await globalLibrary.file(context, req.params.id);
+    if (sessions.peek() !== context || closing.has(context)) return reply.code(409).send({ error: "The active session changed." });
+    reply.type(file.mimeType).header("Accept-Ranges", "bytes");
+    if (req.headers.range !== undefined) {
+      const range = byteRange(req.headers.range, file.size);
+      if (!range) return reply.code(416).header("Content-Range", `bytes */${file.size}`).send();
+      return reply.code(206).header("Content-Range", `bytes ${range.start}-${range.end}/${file.size}`).header("Content-Length", range.end - range.start + 1).send(file.stream(range));
+    }
+    return reply.header("Content-Length", file.size).send(file.stream());
+  });
   app.get<{ Params: { id: string }; Querystring: { session?: string } }>(
     "/media/:id",
     async (req, reply) => {
