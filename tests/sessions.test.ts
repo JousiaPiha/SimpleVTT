@@ -8,6 +8,8 @@ import {
   writeFile,
   rename,
   symlink,
+  lstat,
+  open,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -322,6 +324,63 @@ test("media mutations and online imports prevent session operations", async () =
   await upload;
   expect(manager.require().media.busy()).toBe(false);
 });
+test("first launch initializes beside the Debian launcher lock without replacing its inode", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vtt-first-launch-"));
+  roots.push(root);
+  // The real Debian launcher holds this empty file open before starting Node.
+  const lockPath = join(root, ".launcher.lock");
+  const lock = await open(lockPath, "wx");
+  try {
+    const identity = await lock.stat();
+    const manager = await createSessionManager({
+      dataDir: root,
+      logger: { error: () => {} },
+    });
+    managers.push(manager);
+    expect(manager.status().error).toBeNull();
+    expect(manager.require().info.isDefault).toBe(true);
+    const scene = manager.require().store.createScene("Fresh install");
+    expect(manager.require().store.listScenes()).toContainEqual(
+      expect.objectContaining({ id: scene.id, name: "Fresh install" }),
+    );
+    expect(await lstat(lockPath)).toMatchObject({
+      dev: identity.dev, ino: identity.ino, size: 0,
+    });
+    expect(await readdir(root)).toContain("simple-vtt.sqlite");
+  } finally {
+    await lock.close();
+  }
+});
+test.each(["nonempty lock", "directory", "symlink", "other files"])(
+  "does not mistake %s for an empty launcher lock on first launch",
+  async (kind) => {
+    const root = await mkdtemp(join(tmpdir(), "vtt-first-launch-protection-"));
+    roots.push(root);
+    const dataDir = join(root, "data");
+    await mkdir(dataDir);
+    const lockPath = join(dataDir, ".launcher.lock");
+    if (kind === "directory") await mkdir(lockPath);
+    else if (kind === "symlink") {
+      const external = join(root, "external.lock");
+      await writeFile(external, "");
+      await symlink(external, lockPath);
+    } else {
+      await writeFile(lockPath, kind === "nonempty lock" ? "keep me" : "");
+      if (kind === "other files") await writeFile(join(dataDir, "backup.zip"), "prior data");
+    }
+    const before = await readdir(dataDir);
+    const manager = await createSessionManager({
+      dataDir,
+      logger: { error: () => {} },
+    });
+    managers.push(manager);
+    expect(manager.peek()).toBeNull();
+    expect(manager.status().error).toContain("database is missing");
+    expect(await readdir(dataDir)).toEqual(before);
+    if (kind === "nonempty lock") expect(await readFile(lockPath, "utf8")).toBe("keep me");
+    if (kind === "other files") expect(await readFile(join(dataDir, "backup.zip"), "utf8")).toBe("prior data");
+  },
+);
 test("a nonempty default directory with a missing database enters recovery instead of creating replacement data", async () => {
   const root = await mkdtemp(join(tmpdir(), "vtt-missing-db-"));
   roots.push(root);

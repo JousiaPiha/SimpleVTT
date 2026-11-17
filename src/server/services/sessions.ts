@@ -544,10 +544,20 @@ export async function createSessionManager(options: {
     const missingDatabase =
       exists &&
       !(await lstat(join(defaultPath, "simple-vtt.sqlite")).catch(() => null));
-    if (missingDatabase && (await readdir(defaultPath)).length)
-      throw new Error(
-        "Default Session database is missing from a nonempty folder. Restore the original database; replacement data was not created.",
-      );
+    if (missingDatabase) {
+      const contents = await readdir(defaultPath);
+      // The Debian launcher holds this empty file open before Node starts.
+      // Keep its inode intact so other launches still share the same flock.
+      const launcherLock =
+        contents.length === 1 && contents[0] === ".launcher.lock"
+          ? await lstat(join(defaultPath, ".launcher.lock"))
+          : null;
+      const onlyLauncherLock = launcherLock?.isFile() && launcherLock.size === 0;
+      if (contents.length && !onlyLauncherLock)
+        throw new Error(
+          "Default Session database is missing from a nonempty folder. Restore the original database; replacement data was not created.",
+        );
+    }
     active = await openContext(defaultPath, true, !exists || missingDatabase);
   } catch (err) {
     error = `Default Session is unavailable: ${message(err)}`;
