@@ -5,6 +5,7 @@ import { api, getSessionGeneration, json } from "../../api.js";
 import { useEditor } from "../../stores/editor.js";
 import { useSessionDraft } from "../sessions/drafts.js";
 import { audioEngine } from "./store.js";
+import type { AudioCategory } from "../../../shared/audio.js";
 
 export function useGlobalLibrary() {
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -104,5 +105,17 @@ export function useGlobalLibrary() {
     }
   });
 
-  return { assets, loaded, busy, error, notice, load, transfer, rename, remove };
+  const changeCategory = (asset: Asset, category: AudioCategory) => run(`category:${asset.id}`, async (signal, current) => {
+    const updated = await api(
+      `/api/admin/global-library/${encodeURIComponent(asset.id)}/category`,
+      { ...json("PATCH", { category }), signal },
+      assetSchema,
+    );
+    if (current()) {
+      setAssets((old) => old.map((entry) => entry.id === updated.id ? updated : entry));
+      setNotice(`Updated the category of “${updated.name}” in the global library.`);
+    }
+  });
+
+  return { assets, loaded, busy, error, notice, load, transfer, rename, remove, changeCategory };
 }

@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { libraryRenameSchema } from "../../shared/global-library.js";
+import { audioCategoryUpdateSchema } from "../../shared/audio.js";
 import type { createGlobalLibrary } from "../services/global-library.js";
 import type { SessionContext } from "../services/sessions.js";
 
@@ -16,6 +17,10 @@ export async function globalLibraryRoutes(
   app.post<{ Params: { id: string } }>(
     "/global-library/:id/add-to-session",
     (req) => library.addToSession(context(req), req.params.id),
+  );
+  app.patch<{ Params: { id: string } }>(
+    "/global-library/:id/category",
+    (req) => library.changeAudioCategory(context(req), req.params.id, audioCategoryUpdateSchema.parse(req.body).category),
   );
   app.patch<{ Params: { id: string } }>(
     "/global-library/:id",

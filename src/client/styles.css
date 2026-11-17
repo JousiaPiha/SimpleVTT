@@ -76,7 +76,7 @@ a:focus-visible {
 }
 .library {
   border-right: 1px solid #303640;
-  max-height: calc(100dvh - 102px);
+  max-height: calc(100dvh - 66px);
   overflow-y: auto;
 }
 .scene-library {
@@ -263,7 +263,7 @@ a:focus-visible {
 }
 .inspector {
   border-left: 1px solid #303640;
-  max-height: calc(100dvh - 102px);
+  max-height: calc(100dvh - 66px);
   overflow-y: auto;
 }
 .inspector-empty {
@@ -312,15 +312,6 @@ a:focus-visible {
 .layer-select small {
   font-size: 11px;
   color: #949daa;
-}
-.app-footer {
-  min-height: 36px;
-  padding: 0 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-top: 1px solid #303640;
-  background: #1b1f26;
 }
 .error-banner {
   border-radius: 0;
@@ -423,11 +414,6 @@ a:focus-visible {
   .header-divider + p {
     display: none;
   }
-  .app-footer {
-    gap: 12px;
-    flex-wrap: wrap;
-    padding: 10px 16px;
-  }
   .scene-actions {
     flex-wrap: wrap;
     gap: 12px;
@@ -510,6 +496,18 @@ a:focus-visible {
   gap: 8px;
   align-items: end;
 }
+.help-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  cursor: help;
+}
+.help-label:focus-visible {
+  outline: 2px solid #79c7ca;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 .audio-library-toolbar.global-audio-toolbar {
   grid-template-columns: minmax(120px, 1fr) 160px;
 }
@@ -541,9 +539,6 @@ a:focus-visible {
 }
 .audio-asset-name {
   min-width: 0;
-}
-.audio-asset-name p:last-child {
-  text-transform: capitalize;
 }
 .playlist-editor {
   display: grid;
@@ -706,7 +701,7 @@ a:focus-visible {
     padding-right: 16px;
   }
   .audio-library-toolbar {
-    grid-template-columns: minmax(100px, 1fr) 110px 110px;
+    grid-template-columns: minmax(100px, 1fr) 120px 110px;
   }
   .audio-asset-list {
     max-height: 130px;

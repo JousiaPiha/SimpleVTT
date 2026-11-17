@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { fileTypeFromFile } from "file-type";
 import type { FastifyBaseLogger } from "fastify";
 import { assetSchema, type Asset } from "../../shared/contracts.js";
-import { isAudioAsset } from "../../shared/audio.js";
+import { isAudioAsset, type AudioCategory } from "../../shared/audio.js";
 import { type SoundboardEntry } from "../../shared/soundboard.js";
 import { openGlobalLibraryStore, type LibraryRecord } from "../database/global-library.js";
 import { MAX_FILE_SIZE, MAX_IMAGE_SIZE } from "./media.js";
@@ -176,7 +176,9 @@ export function createGlobalLibrary(options: {
           if (checked.digest !== existing.digest) fail("Global media changed; restore the original file before retrying");
           return { record: existing, reused: true };
         }
-        const newId = `${source.category}-${inspected.digest}`;
+        // Categories can change. Keep identity independent of category/hash so
+        // promoting the original category again cannot collide with an old ID.
+        const newId = randomUUID();
         const relativePath = `${newId}.${inspected.extension}`;
         const destination = join(library.media, relativePath);
         await files.track(destination, await publishFile(inspected.path, destination));
@@ -238,6 +240,8 @@ export function createGlobalLibrary(options: {
       requireAudio(library.store.getAsset(id));
       return library.store.rename(id, name);
     }),
+    changeAudioCategory: (session: SessionContext, id: string, category: AudioCategory) =>
+      run(session, (library) => library.store.changeAudioCategory(id, category)),
     delete: (session: SessionContext, id: string) => run(session, async (library) => {
       requireAudio(library.store.getAsset(id));
       const icon = library.store.soundboard(id)?.customIconAssetId;

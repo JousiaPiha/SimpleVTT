@@ -5,6 +5,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { join, resolve } from "node:path";
 import { assetSchema, type Asset } from "../../shared/contracts.js";
+import { isAudioAsset, type AudioCategory } from "../../shared/audio.js";
 import {
   soundboardEntrySchema,
   type SoundboardEntry,
@@ -57,6 +58,17 @@ export function openGlobalLibraryStore(directory: string) {
       rename(id: string, name: string) {
         getAsset(id);
         db.update(libraryAssets).set({ name }).where(eq(libraryAssets.id, id)).run();
+        return assetSchema.parse(getAsset(id));
+      },
+      changeAudioCategory(id: string, category: AudioCategory) {
+        const asset = getAsset(id);
+        if (!isAudioAsset(asset))
+          throw Object.assign(new Error("Choose a music, ambience or sound effect track"), { statusCode: 400 });
+        const duplicate = db.select().from(libraryAssets)
+          .where(and(eq(libraryAssets.category, category), eq(libraryAssets.digest, asset.digest))).get();
+        if (duplicate && duplicate.id !== id)
+          throw Object.assign(new Error("This audio is already in the global library under that category. Use the existing copy or delete it first."), { statusCode: 409 });
+        db.update(libraryAssets).set({ category }).where(eq(libraryAssets.id, id)).run();
         return assetSchema.parse(getAsset(id));
       },
       deleteAsset(id: string) {

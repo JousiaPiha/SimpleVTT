@@ -1,6 +1,6 @@
 import { ActionIcon, Tooltip } from "@mantine/core";
 
-type IconName = "person" | "image" | "eye" | "eye-off" | "trash";
+type IconName = "person" | "image" | "eye" | "eye-off" | "trash" | "globe";
 function ActionSymbol({ name }: { name: IconName }) {
   return (
     <svg
@@ -44,6 +44,13 @@ function ActionSymbol({ name }: { name: IconName }) {
           <path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7" />
         </>
       ) : null}
+      {name === "globe" ? (
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <ellipse cx="12" cy="12" rx="4" ry="9" />
+          <path d="M3 12h18" />
+        </>
+      ) : null}
     </svg>
   );
 }
@@ -52,6 +59,7 @@ export function CompactAction({
   label,
   tooltip = label,
   disabled = false,
+  loading = false,
   danger = false,
   active = false,
   onClick,
@@ -60,6 +68,7 @@ export function CompactAction({
   label: string;
   tooltip?: string;
   disabled?: boolean;
+  loading?: boolean;
   danger?: boolean;
   active?: boolean;
   onClick: () => void;
@@ -79,6 +88,7 @@ export function CompactAction({
         className={danger ? "compact-action danger-action" : "compact-action"}
         aria-label={label}
         disabled={disabled}
+        loading={loading}
         onClick={onClick}
       >
         <ActionSymbol name={icon} />

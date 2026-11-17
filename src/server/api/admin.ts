@@ -13,6 +13,7 @@ import {
 } from "../../shared/contracts.js";
 import {
   audioPreferencesSchema,
+  audioCategoryUpdateSchema,
   playlistInputSchema,
 } from "../../shared/audio.js";
 import {
@@ -196,6 +197,11 @@ export async function adminRoutes(
     return { sceneId: context(req).store.activeId() };
   });
   app.get("/assets", async (req) => context(req).store.listAssets());
+  app.patch<{ Params: Params }>("/assets/:id/category", async (req) => {
+    const { category } = audioCategoryUpdateSchema.parse(req.body);
+    const session = context(req);
+    return session.media.exclusive(async () => session.store.changeAudioCategory(req.params.id, category));
+  });
   app.get<{ Params: Params }>("/assets/:id/usage", async (req) =>
     context(req).store.assetUsage(req.params.id),
   );

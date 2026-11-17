@@ -21,9 +21,11 @@ import { useEditor } from "../../stores/editor.js";
 import { audioEngine, useAudioStore } from "./store.js";
 import { GlobalAudioLibrary } from "./GlobalAudioLibrary.js";
 import { useGlobalLibrary } from "./useGlobalLibrary.js";
+import { AudioCategoryMenu } from "./AudioCategoryMenu.js";
+import { HelpLabel, HelpTooltip, SCAN_MEDIA_HELP } from "../../components/HelpTooltip.js";
 
 export function AudioLibrary() {
-  const { assets, importImages, scan, pending } = useEditor();
+  const { assets, importImages, scan, pending, changeAudioCategory } = useEditor();
   const { snapshot } = useAudioStore();
   const library = useGlobalLibrary();
   const [location, setLocation] = useState("session");
@@ -93,7 +95,7 @@ export function AudioLibrary() {
           onChange={(e) => setSearch(e.currentTarget.value)}
         />
         <Select
-          label="Show in library"
+          label={<HelpLabel label="Show in library" help="Filter which audio categories are shown here. This does not change any track’s category." />}
           aria-label="Filter audio category"
           value={filter}
           onChange={(value) => setFilter(value ?? "all")}
@@ -107,7 +109,7 @@ export function AudioLibrary() {
         {location === "session" ? (
           <>
             <Select
-              label="Import as"
+              label={<HelpLabel label="Import as" help="Choose the category for new file uploads and URL downloads. To change an existing track, click its category below its name." />}
               aria-label="Audio import category"
               value={category}
               onChange={(value) => {
@@ -128,15 +130,17 @@ export function AudioLibrary() {
             >
               Import audio
             </Button>
-            <Button
-              size="xs"
-              variant="subtle"
-              color="gray"
-              disabled={pending > 0}
-              onClick={() => void scan()}
-            >
-              Scan folder
-            </Button>
+            <HelpTooltip label={SCAN_MEDIA_HELP}>
+              <Button
+                size="xs"
+                variant="subtle"
+                color="gray"
+                disabled={pending > 0}
+                onClick={() => void scan()}
+              >
+                Scan folder
+              </Button>
+            </HelpTooltip>
           </>
         ) : null}
       </div>
@@ -163,11 +167,8 @@ export function AudioLibrary() {
                   <Text size="sm" truncate title={asset.name}>
                     {asset.name}
                   </Text>
-                  <Text size="xs" c="dimmed">
-                    {asset.category === "effect"
-                      ? "Sound effect"
-                      : asset.category}
-                  </Text>
+                  <AudioCategoryMenu asset={asset} disabled={pending > 0 || !!library.busy}
+                    onChange={(next) => void changeAudioCategory(asset.id, next)} />
                 </div>
                 <Group gap={6} wrap="nowrap">
                   {asset.category === "ambience" ? (
@@ -207,16 +208,14 @@ export function AudioLibrary() {
                       Play music
                     </Button>
                   )}
-                  <Button
-                    size="compact-xs"
-                    variant="default"
-                    aria-label={`Add to global library ${asset.name}`}
+                  <CompactAction
+                    icon="globe"
+                    tooltip="Add to global library (copy for all sessions)"
+                    label={`Add to global library ${asset.name}`}
                     disabled={pending > 0 || !!library.busy}
                     loading={library.busy === `transfer:${asset.id}`}
                     onClick={() => void library.transfer(asset, "global")}
-                  >
-                    Add to global library
-                  </Button>
+                  />
                   <CompactAction
                     icon="trash"
                     tooltip="Delete sound"

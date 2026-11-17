@@ -132,6 +132,8 @@ Text and loot use the same logical canvas and layers as sprites. Hidden content 
 4. Use **Playlists** to name and save an ordered track list. Music supports pause, stop, previous/next, seeking, queue looping, and shuffle. Without looping, shuffle plays each queue entry once. Starting a library track replaces the current music queue.
 5. Use **Ambience** for independent loop volumes and **Soundboard** for one-off effects. Master and category volumes, loop/shuffle preferences, and ambience volumes save automatically. Playlist edits require **Save playlist**.
 
+In either audio library, click the category beneath a track's name to change it between **Music**, **Ambience**, and **Sound effects**. This saves automatically without changing the audio file or playlist membership. Soundboard groups and icons return when you switch back to Sound effects. Current playback continues in its original channel until stopped; the new category determines the controls for future playback. **Show in library** only filters the list, while **Import as** sets the category for new uploads and URL imports.
+
 In **Soundboard**, use the settings button on a sound tile to assign a group and icon, then **Save sound settings**. Type a new group name or select an existing one; clear it to return the sound to **Ungrouped**. Group headings, the group filter, and search help you find effects quickly. Groups disappear when no sounds use them.
 
 Choose from 32 bundled [Lucide](https://lucide.dev/) icons (ISC licensed), select an image from the media library, or **Upload custom icon** (PNG, WebP, JPEG, GIF). Transparent square images work well. Uploaded icons remain in the library if you cancel. Deleting an icon image falls back to the sound's built-in icon. Groups and icons persist across restarts and stay private to the GM; neither editing settings nor filtering interrupts playback. Soundboard groups are assigned manually, independently of filesystem folders.
@@ -144,11 +146,12 @@ Sound effects are limited to 16 MiB encoded, 120 seconds, and 64 MiB decoded per
 
 In **Mixer & library → Library**, use **Session / Global library** to switch between the current session's sounds and the server's reusable collection.
 
-- **Add to global library** on a session track copies its original audio bytes into the server collection. The session keeps its own file.
+- The **globe icon** (**Add to global library** tooltip) on a session track copies its original audio bytes into the server collection. The session keeps its own file.
 - **Preview** plays one global track without importing it or changing the music queue, ambience, or playlists. Enable Audio first. Preview uses the master and matching category volume; Stop preview, Stop all, signing out, and switching sessions stop it.
 - **Add to session** creates an independent local copy. Repeated additions reuse matching existing audio in that category, including the original session import. No audible playback starts automatically.
 - Sound effects bring their saved group, built-in icon, and custom icon image. Existing local names and soundboard settings are kept when an identical track is already in the session.
 - Global tracks can be renamed or deleted. Deletion asks for confirmation. Neither action changes copies already added to sessions; deleting a session track or clearing Default Session leaves the global library intact.
+- Category changes also affect only the selected copy. If identical audio already exists in the target global category, the change is refused with an explanation so neither entry is lost.
 
 The global catalog and files live in a separate `global-library` folder beside `DATA_DIR` (normally `./global-library`). The default folder is created on first use. Set `GLOBAL_LIBRARY_DIR` to an **existing empty folder**, or an existing global library, to choose another location. Keep it separate from session and media folders. If a configured drive or folder is missing, the library shows an error without recreating the path; restore it and use **Retry global library**. Session audio continues to work from its local files.
 

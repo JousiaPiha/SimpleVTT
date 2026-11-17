@@ -5,6 +5,7 @@ import type { Asset } from "../../shared/contracts.js";
 import { CompactAction } from "./CompactAction.js";
 import { DeleteAssetDialog } from "./DeleteAssetDialog.js";
 import { mediaUrl } from "../api.js";
+import { HelpTooltip, SCAN_MEDIA_HELP } from "./HelpTooltip.js";
 
 export function MediaLibrary() {
   const {
@@ -89,15 +90,17 @@ export function MediaLibrary() {
             e.target.value = "";
           }}
         />
-        <Button
-          variant="subtle"
-          color="gray"
-          size="xs"
-          onClick={() => void scan()}
-          disabled={pending > 0}
-        >
-          Scan media folder
-        </Button>
+        <HelpTooltip label={SCAN_MEDIA_HELP}>
+          <Button
+            variant="subtle"
+            color="gray"
+            size="xs"
+            onClick={() => void scan()}
+            disabled={pending > 0}
+          >
+            Scan media folder
+          </Button>
+        </HelpTooltip>
       </Stack>
       <div className="media-items">
         {!filtered.length ? (

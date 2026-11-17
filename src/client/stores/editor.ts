@@ -18,6 +18,7 @@ import {
   type ContentPatch,
 } from "../../shared/content.js";
 import { api, json, mediaUrl } from "../api.js";
+import type { AudioCategory } from "../../shared/audio.js";
 
 type SceneSummary = Pick<Scene, "id" | "name" | "backgroundAssetId">;
 interface EditorState {
@@ -53,6 +54,7 @@ interface EditorState {
   importImages: (files: File[], category: Asset["category"]) => Promise<void>;
   scan: () => Promise<void>;
   deleteAsset: (id: string) => Promise<boolean>;
+  changeAudioCategory: (id: string, category: AudioCategory) => Promise<boolean>;
 }
 let queue = Promise.resolve();
 let selectionRequest = 0;
@@ -571,6 +573,19 @@ export const useEditor = create<EditorState>((set, get) => {
             ? null
             : s.selectedId,
         }));
+        return true;
+      });
+      return result === true;
+    },
+    changeAudioCategory: async (id, category) => {
+      set({ error: null });
+      const result = await tracked(async ({ request, commit }) => {
+        const asset = await request(
+          `/api/admin/assets/${encodeURIComponent(id)}/category`,
+          json("PATCH", { category }),
+          assetSchema,
+        );
+        commit((state) => ({ assets: state.assets.map((entry) => entry.id === id ? asset : entry) }));
         return true;
       });
       return result === true;

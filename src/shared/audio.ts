@@ -3,6 +3,7 @@ import type { Asset } from "./contracts.js";
 
 export const audioCategorySchema = z.enum(["music", "ambience", "effect"]);
 export type AudioCategory = z.infer<typeof audioCategorySchema>;
+export const audioCategoryUpdateSchema = z.object({ category: audioCategorySchema }).strict();
 export const isAudioAsset = (asset: Asset): boolean =>
   asset.mimeType.startsWith("audio/");
 export const playlistInputSchema = z

@@ -83,6 +83,41 @@ afterEach(async () => {
 });
 
 describe("private audio backend", () => {
+  it("changes audio categories without losing files, playlists or reusable soundboard settings", async () => {
+    const asset = (await upload(wav, "effect")).json();
+    const settings = { group: "Weather", icon: "volume-2", customIconAssetId: null };
+    expect((await admin("PUT", `/api/admin/soundboard/${asset.id}`, settings)).statusCode).toBe(200);
+    const playlist = (await admin("POST", "/api/admin/playlists", {
+      name: "Storm", trackIds: [asset.id, asset.id],
+    })).json();
+    const files = await readdir(join(dir, "media"));
+    for (const category of ["music", "ambience", "effect", "ambience", "music", "effect"]) {
+      const response = await admin("PATCH", `/api/admin/assets/${asset.id}/category`, { category });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json()).toEqual({ ...asset, category });
+    }
+    await admin("PATCH", `/api/admin/assets/${asset.id}/category`, { category: "ambience" });
+    expect((await admin("POST", "/api/admin/assets/scan")).statusCode).toBe(200);
+    await app.close();
+    await start();
+    expect((await admin("GET", "/api/admin/assets")).json()).toEqual([{ ...asset, category: "ambience" }]);
+    expect((await admin("GET", "/api/admin/playlists")).json()).toEqual([playlist]);
+    expect((await admin("GET", "/api/admin/soundboard")).json()).toEqual([{ assetId: asset.id, ...settings }]);
+    expect(await readdir(join(dir, "media"))).toEqual(files);
+    expect((await admin("GET", `/media/${asset.id}`)).rawPayload).toEqual(wav);
+  });
+  it("only allows authorized audio category changes and leaves rejected assets untouched", async () => {
+    const asset = (await upload()).json();
+    const image = (await upload(png, "image")).json();
+    const url = `/api/admin/assets/${asset.id}/category`;
+    expect((await app.inject({ method: "PATCH", url, payload: { category: "effect" } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "PATCH", url, headers: { cookie, origin: "http://evil.example" }, payload: { category: "effect" } })).statusCode).toBe(403);
+    for (const payload of [{ category: "image" }, { category: "music", name: "Changed" }, {}])
+      expect((await admin("PATCH", url, payload)).statusCode).toBe(400);
+    expect((await admin("PATCH", `/api/admin/assets/${image.id}/category`, { category: "music" })).statusCode).toBe(400);
+    expect((await admin("PATCH", "/api/admin/assets/missing/category", { category: "music" })).statusCode).toBe(404);
+    expect((await admin("GET", "/api/admin/assets")).json()).toEqual(expect.arrayContaining([asset, image]));
+  });
   it("uploads original audio bytes and validates media kind against category", async () => {
     const response = await upload();
     expect(response.statusCode).toBe(201);

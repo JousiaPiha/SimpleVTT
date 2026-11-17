@@ -5,6 +5,7 @@ import { CompactAction } from "../../components/CompactAction.js";
 import { useSessionAccess } from "../sessions/access.js";
 import { audioEngine, useAudioStore } from "./store.js";
 import type { useGlobalLibrary } from "./useGlobalLibrary.js";
+import { AudioCategoryMenu } from "./AudioCategoryMenu.js";
 
 export function GlobalAudioLibrary({
   library,
@@ -68,9 +69,8 @@ export function GlobalAudioLibrary({
               <>
                 <div className="audio-asset-name">
                   <Text size="sm" truncate title={asset.name}>{asset.name}</Text>
-                  <Text size="xs" c="dimmed">
-                    {asset.category === "effect" ? "Sound effect" : asset.category}
-                  </Text>
+                  <AudioCategoryMenu asset={asset} disabled={!!library.busy}
+                    onChange={(category) => void library.changeCategory(asset, category)} />
                 </div>
                 <Group gap={6} wrap="nowrap">
                   <Button

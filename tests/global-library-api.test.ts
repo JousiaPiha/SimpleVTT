@@ -114,6 +114,61 @@ it("promotes independent audio bytes, reuses identical transfers, and retains th
   expect((await media(promoted.asset.id, true)).rawPayload).toEqual(audio);
 });
 
+it("recategorizes global tracks independently and can promote the original category again", async () => {
+  const original = await upload(audio, "effect");
+  const icon = await upload(png, "image", "icon.png");
+  const settings = { group: "Weather", icon: "volume-2", customIconAssetId: icon.id };
+  expect((await request("PUT", `soundboard/${original.id}`, settings)).statusCode).toBe(200);
+  const { asset } = await transfer(`from-session/${original.id}`);
+  const files = await readdir(join(globalDir, "media"));
+  const changed = await request("PATCH", `global-library/${asset.id}/category`, { category: "ambience" });
+  expect(changed.statusCode, changed.body).toBe(200);
+  expect(changed.json()).toEqual({ ...asset, category: "ambience" });
+  expect(await assets()).toContainEqual(original);
+  expect(await readdir(join(globalDir, "media"))).toEqual(files);
+  expect((await media(asset.id, true)).rawPayload).toEqual(audio);
+  const copy = await transfer(`${asset.id}/add-to-session`);
+  expect(copy.asset.category).toBe("ambience");
+  const rePromoted = await transfer(`from-session/${original.id}`);
+  expect(rePromoted.asset.id).not.toBe(asset.id);
+  expect(rePromoted.asset.category).toBe("effect");
+  expect(await transfer(`from-session/${original.id}`)).toEqual({ ...rePromoted, reused: true });
+  await request("DELETE", `global-library/${rePromoted.asset.id}`);
+  await app.close();
+  await start();
+  expect(await library()).toEqual([{ ...asset, category: "ambience" }]);
+  expect((await request("PATCH", `global-library/${asset.id}/category`, { category: "effect" })).statusCode).toBe(200);
+  await perform("clear");
+  const restored = await transfer(`${asset.id}/add-to-session`);
+  const sound = (await request("GET", "soundboard")).json<SoundboardEntry[]>()[0]!;
+  expect(sound).toMatchObject({ assetId: restored.asset.id, group: "Weather", icon: "volume-2" });
+  expect((await media(sound.customIconAssetId!)).rawPayload).toEqual(png);
+});
+
+it("rejects a conflicting global category change without merging or losing either track", async () => {
+  const original = await upload();
+  const music = (await transfer(`from-session/${original.id}`)).asset;
+  const effect = (await transfer(`from-session/${(await upload(audio, "effect")).id}`)).asset;
+  const response = await request("PATCH", `global-library/${music.id}/category`, { category: "effect" });
+  expect(response.statusCode).toBe(409);
+  expect(response.json().error).toMatch(/already.*category/i);
+  expect(await library()).toEqual(expect.arrayContaining([music, effect]));
+  expect((await media(music.id, true)).rawPayload).toEqual(audio);
+  expect((await media(effect.id, true)).rawPayload).toEqual(audio);
+  expect((await request("PATCH", `global-library/${music.id}/category`, { category: "music" })).statusCode).toBe(200);
+});
+
+it("validates and protects global category updates", async () => {
+  const { asset } = await transfer(`from-session/${(await upload()).id}`);
+  const path = `global-library/${asset.id}/category`;
+  expect((await app.inject({ method: "PATCH", url: `/api/admin/${path}`, payload: { category: "effect" } })).statusCode).toBe(401);
+  expect((await app.inject({ method: "PATCH", url: `/api/admin/${path}`, headers: { cookie, origin: "http://evil.example" }, payload: { category: "effect" } })).statusCode).toBe(403);
+  expect((await request("PATCH", path, { category: "image" })).statusCode).toBe(400);
+  expect((await request("PATCH", path, { category: "effect", name: "Changed" })).statusCode).toBe(400);
+  expect((await request("PATCH", "global-library/missing/category", { category: "effect" })).statusCode).toBe(404);
+  expect(await library()).toEqual([asset]);
+});
+
 it("previews authenticated byte ranges without importing or changing session assets", async () => {
   const original = await upload();
   const { asset } = await transfer(`from-session/${original.id}`);

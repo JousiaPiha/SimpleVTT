@@ -635,14 +635,6 @@ export default function AdminPage() {
           <AudioPanel />
         </div>
       )}
-      <footer className="app-footer">
-        <Text size="xs" c="dimmed">
-          Local presentation workspace
-        </Text>
-        <Text size="xs" c="dimmed">
-          Scenes, audio and content · Phase 3
-        </Text>
-      </footer>
       <Modal
         withinPortal={false}
         opened={rename && !editingDisabled}

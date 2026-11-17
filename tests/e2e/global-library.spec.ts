@@ -53,6 +53,69 @@ async function expandAudio(page: Page) {
   await page.getByRole("tab", { name: "Library", exact: true }).click();
 }
 
+test("audio categories change in either library without interrupting playback or altering the other copy", async ({ page }) => {
+  await page.addInitScript(() => {
+    const NativeAudio = window.Audio;
+    const elements: HTMLAudioElement[] = [];
+    Object.defineProperty(window, "__categoryAudio", { value: elements });
+    window.Audio = class extends NativeAudio {
+      constructor(src?: string) { super(src); elements.push(this); }
+    };
+  });
+  const playing = () => page.evaluate(() => (
+    window as unknown as { __categoryAudio: HTMLAudioElement[] }
+  ).__categoryAudio.filter((audio) => !audio.paused && !audio.ended).length);
+  await page.goto("/admin");
+  await page.getByLabel("Administrator password").fill("test-password-123");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expandAudio(page);
+  await page.getByLabel("Import audio files").setInputFiles({
+    name: trackName, mimeType: "audio/wav", buffer: wav(90),
+  });
+  await expect(page.getByRole("button", { name: `Play ${trackName}`, exact: true })).toBeVisible();
+  const original = (await localAssets(page))[0]!;
+  const playlist = await page.request.post("/api/admin/playlists", {
+    headers: await sessionHeaders(page), data: { name: "Keep tracks", trackIds: [original.id] },
+  });
+  expect(playlist.status()).toBe(201);
+  await page.getByRole("button", { name: "Enable Audio", exact: true }).click();
+  await page.getByRole("button", { name: `Play ${trackName}`, exact: true }).click();
+  await expect.poll(playing).toBe(1);
+  const change = async (category: string) => {
+    await page.getByRole("button", { name: `Change category for ${trackName}`, exact: true }).click();
+    await page.getByRole("menuitem", { name: category, exact: true }).click();
+  };
+  await change("Sound effects");
+  await expect(page.getByRole("button", { name: `Trigger ${trackName}`, exact: true })).toBeVisible();
+  await expect.poll(playing).toBe(1);
+  await page.getByRole("tab", { name: "Soundboard", exact: true }).click();
+  await expect(page.getByRole("button", { name: `Configure ${trackName}`, exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Library", exact: true }).click();
+  await change("Ambience");
+  await expect(page.getByRole("button", { name: `Start ambience ${trackName}`, exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Soundboard", exact: true }).click();
+  await expect(page.getByRole("button", { name: `Configure ${trackName}`, exact: true })).toHaveCount(0);
+  await page.getByRole("tab", { name: "Library", exact: true }).click();
+  await change("Music");
+  await expect(page.getByRole("button", { name: `Play ${trackName}`, exact: true })).toBeVisible();
+  await page.getByRole("button", { name: `Add to global library ${trackName}`, exact: true }).click();
+  await expect.poll(async () => (await globalAssets(page)).length).toBe(1);
+  await page.getByText("Global library", { exact: true }).click();
+  await page.getByRole("button", { name: `Preview ${trackName}`, exact: true }).click();
+  await expect.poll(playing).toBe(2);
+  await change("Sound effects");
+  await expect.poll(async () => (await globalAssets(page))[0]?.category).toBe("effect");
+  expect((await localAssets(page))[0]).toEqual(original);
+  await expect.poll(playing).toBe(2);
+  await page.reload();
+  await expandAudio(page);
+  await expect(page.getByRole("button", { name: `Play ${trackName}`, exact: true })).toBeVisible();
+  await page.getByText("Global library", { exact: true }).click();
+  await expect(page.getByRole("button", { name: `Change category for ${trackName}`, exact: true })).toHaveText("Sound effects");
+  const saved = (await (await page.request.get("/api/admin/playlists")).json())[0];
+  expect(saved.trackIds).toEqual([original.id]);
+});
+
 test("global previews stay separate, copies survive a session clear, and soundboard settings travel with them", async ({ page, browser }) => {
   test.setTimeout(60000);
   const errors: string[] = [];

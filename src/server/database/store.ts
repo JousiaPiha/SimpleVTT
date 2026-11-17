@@ -43,6 +43,7 @@ import {
   playlistSchema,
   DEFAULT_AUDIO_PREFERENCES,
   type AudioPreferences,
+  type AudioCategory,
   type Playlist,
   type PlaylistInput,
 } from "../../shared/audio.js";
@@ -482,6 +483,15 @@ export function openStore(
           .from(assets)
           .orderBy(asc(assets.name))
           .all(),
+      changeAudioCategory(id: string, category: AudioCategory) {
+        const asset = getAsset(id);
+        if (!asset.mimeType.startsWith("audio/"))
+          badRequest("Only audio assets can change between music, ambience and sound effects");
+        // Keep the ID, playlist links and soundboard settings so switching back
+        // restores the prepared sound without copying or transcoding the file.
+        db.update(assets).set({ category }).where(eq(assets.id, id)).run();
+        return assetSchema.parse(getAsset(id));
+      },
       importAssets(
         records: (Asset & { relativePath: string })[],
         sound?: { assetId: string } & SoundboardInput,
