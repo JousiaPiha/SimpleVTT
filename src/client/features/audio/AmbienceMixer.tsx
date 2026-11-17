@@ -6,7 +6,9 @@ export function AmbienceMixer() {
   const assets = useEditor((s) => s.assets);
   const { snapshot, preferencesChanged } = useAudioStore();
   const active = new Map(snapshot.ambience.map((a) => [a.asset.id, a]));
-  const ambience = assets.filter((a) => a.category === "ambience");
+  // A category change leaves playback running, so keep its stop/volume controls
+  // here until the existing loop ends.
+  const ambience = assets.filter((a) => a.category === "ambience" || active.has(a.id));
   return (
     <div className="ambience-mixer">
       {ambience.length ? (
